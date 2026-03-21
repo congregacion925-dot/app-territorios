@@ -1,8 +1,7 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-// Importamos writeBatch y deleteDoc para la limpieza masiva
-import { collection, doc, getDoc, getDocs, query, where, writeBatch } from 'firebase/firestore';
+// IMPORTANTE: Agregamos serverTimestamp para el historial
+import { collection, doc, getDoc, getDocs, query, serverTimestamp, where, writeBatch } from 'firebase/firestore';
 import React, { useCallback, useEffect, useState } from 'react';
-// Importamos RefreshControl para el gesto de jalar hacia abajo
 import { Alert, KeyboardAvoidingView, Modal, Platform, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { db } from '../config/firebase';
 
@@ -13,7 +12,6 @@ export default function ListaScreen() {
   const [territorios, setTerritorios] = useState<any[]>([]);
   const [asignaciones, setAsignaciones] = useState<any>({});
   
-  // Estado para la animación de refrescar
   const [refreshing, setRefreshing] = useState(false);
 
   const [modalRevisitasVisible, setModalRevisitasVisible] = useState(false);
@@ -48,7 +46,6 @@ export default function ListaScreen() {
 
   useEffect(() => { cargarDatosGlobales(); }, []);
 
-  // Función que se ejecuta al jalar la pantalla hacia abajo
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await cargarDatosGlobales();
@@ -80,25 +77,59 @@ export default function ListaScreen() {
     } catch (e) { Alert.alert("Error", "No se pudo verificar."); }
   };
 
-  // --- NUEVA FUNCIÓN MÁGICA DE ENTREGA Y LIMPIEZA ---
+  // --- FUNCIÓN MEJORADA: AHORA GUARDA EN EL HISTORIAL (S-13) ---
   const entregarTerritorio = async (idTer: string) => {
-    Alert.alert("Entregar Territorio", "¿Confirmas que el grupo ha terminado de trabajar este territorio? Al entregar, se borrarán las notas de la bitácora de manzanas y el territorio pasará a periodo de descanso.", [
+    Alert.alert("Entregar Territorio", "¿Confirmas que el grupo ha terminado de trabajar este territorio? Al entregar, se borrarán las notas de la bitácora y pasará al Historial de la congregación.", [
         { text: "Cancelar", style: "cancel" },
         { text: "Sí, Entregar", style: "destructive", onPress: async () => {
             try {
-                // writeBatch nos permite hacer muchos cambios en la base de datos de un solo golpe
                 const batch = writeBatch(db);
+                const ahora = new Date();
+
+                // 0. Recopilamos la información para el Historial ANTES de borrar la asignación
+                const refAsig = doc(db, "asignaciones", `ter-${idTer}`);
+                const asigSnap = await getDoc(refAsig);
+                
+                let fechaAsignada = "Sin registro";
+                let publicadoresTrabajando = String(uLog); // Por defecto el capitán actual
+                
+                if (asigSnap.exists()) {
+                    const asigData = asigSnap.data();
+                    fechaAsignada = asigData.fecha_asignacion || "Sin registro";
+                    if (asigData.publicadores && asigData.publicadores.length > 0) {
+                        publicadoresTrabajando = asigData.publicadores.join(", ");
+                    } else if (asigData.publicador) {
+                        publicadoresTrabajando = asigData.publicador;
+                    }
+                }
+
+                // Generamos mes y año de servicio
+                const meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+                const mesNombre = meses[ahora.getMonth()];
+                const anioServicio = ahora.getMonth() >= 8 ? ahora.getFullYear() + 1 : ahora.getFullYear(); // Septiembre inicia el nuevo año
+
+                // Escribimos el Historial
+                const refHistorial = doc(collection(db, "historial_territorios"));
+                batch.set(refHistorial, {
+                    territorio: String(idTer),
+                    mes: mesNombre,
+                    anio_servicio: anioServicio,
+                    fecha_corte: ahora.toISOString(),
+                    fecha_asignacion: fechaAsignada,
+                    publicadores: publicadoresTrabajando,
+                    estado: "Completado desde App",
+                    timestamp: serverTimestamp()
+                });
 
                 // 1. Sello de descansando y reiniciamos el progreso a 0
                 const refTer = doc(db, "territorios", String(idTer));
                 batch.update(refTer, { 
                     estado: "descansando", 
-                    fecha_entregado: new Date().toLocaleDateString('es-ES'),
+                    fecha_entregado: ahora.toLocaleDateString('es-ES'),
                     trabajadas: 0 
                 });
 
                 // 2. Liberamos la asignación (te lo quita de tu lista)
-                const refAsig = doc(db, "asignaciones", `ter-${idTer}`);
                 batch.delete(refAsig);
 
                 // 3. Limpiamos todas las manzanas (Estados y Notas)
@@ -116,9 +147,10 @@ export default function ListaScreen() {
                 // Ejecutamos todos los cambios al mismo tiempo
                 await batch.commit();
 
-                Alert.alert("¡Éxito!", "Territorio entregado. Las manzanas han sido limpiadas para la próxima campaña.");
+                Alert.alert("¡Éxito!", "Territorio entregado y guardado en el Historial.");
                 cargarDatosGlobales();
             } catch(e) { 
+                console.log(e);
                 Alert.alert("Error", "No se pudo entregar el territorio."); 
             }
         }}
@@ -258,7 +290,6 @@ const styles = StyleSheet.create({
   header: { backgroundColor: '#4A148C', padding: 25, paddingTop: 50, borderBottomLeftRadius: 20, borderBottomRightRadius: 20 },
   tH: { fontSize: 28, fontWeight: 'bold', color: 'white' },
   subH: { color: '#E1BEE7', fontSize: 16, marginTop: 5 },
-  // Aquí está el truco: le puse paddingBottom 100 para que el panel no estorbe abajo
   scrollP: { padding: 15, paddingBottom: 100 },
   cardT: { backgroundColor: 'white', padding: 15, borderRadius: 12, marginBottom: 15, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', elevation: 2 },
   tT: { fontSize: 18, fontWeight: 'bold', color: '#333' },
