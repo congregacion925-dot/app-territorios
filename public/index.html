@@ -1,0 +1,937 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Panel de Administración - Territorios</title>
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#4A148C">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    <style>
+        html, body { height: 100%; width: 100%; margin: 0; padding: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f7f6; }
+        #login-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #4A148C; display: flex; justify-content: center; align-items: center; z-index: 2000; }
+        .login-box { background: white; padding: 40px; border-radius: 12px; width: 320px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
+        .login-box h2 { color: #4A148C; margin-top: 0; margin-bottom: 5px; }
+        .login-box p { color: #666; font-size: 14px; margin-bottom: 25px; }
+        .login-box input { width: 90%; padding: 12px; margin: 10px 0; border: 1px solid #ccc; border-radius: 6px; outline: none; }
+        .login-btn { width: 100%; background: #FFC107; color: #333; border: none; padding: 12px; font-weight: bold; font-size: 16px; border-radius: 6px; cursor: pointer; margin-top: 15px; }
+        #login-error { color: #ff4444; font-size: 13px; margin-top: 15px; display: none; font-weight: bold; }
+        
+        #app-screen { display: none; width: 100%; height: 100%; flex-direction: row; }
+        #sidebar { width: 380px; background: white; border-right: 1px solid #ddd; display: flex; flex-direction: column; z-index: 1000; height: 100%; }
+        #map { flex: 1; height: 100%; z-index: 1; }
+        
+        .header { padding: 20px; background: #4A148C; color: white; flex-shrink: 0; }
+        .header-top { display: flex; justify-content: space-between; align-items: center; }
+        .header h3 { margin: 0; font-size: 18px; }
+        .botones-header { display: flex; margin-top: 10px; gap: 5px; flex-wrap: wrap; }
+        .btn-top { background: rgba(255,255,255,0.2); border: 1px solid white; color: white; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: bold; margin-bottom: 5px; }
+        
+        .tabs { display: flex; background: #eee; border-bottom: 2px solid #ddd; flex-shrink: 0; }
+        .tab-btn { flex: 1; padding: 12px; border: none; background: transparent; font-weight: bold; color: #888; cursor: pointer; transition: 0.3s; font-size: 13px;}
+        .tab-btn:hover { color: #4A148C; }
+        .tab-btn.active { background: white; color: #4A148C; border-bottom: 3px solid #4A148C; }
+        .tab-content { display: none; flex-direction: column; height: 100%; overflow: hidden; }
+        .tab-content.active { display: flex; }
+
+        .search-container { padding: 15px; background: #fff; border-bottom: 1px solid #eee; flex-shrink: 0; }
+        #searchBar { width: 90%; padding: 10px; border-radius: 8px; border: 1px solid #ccc; outline: none; }
+        
+        .stats-container { padding: 20px; background: #fff; overflow-y: auto; flex: 1; }
+        .stat-item { margin-bottom: 20px; font-size: 13px; font-weight: bold; color: #555; }
+        .barra-fondo { height: 8px; background: #e0e0e0; border-radius: 4px; margin-top: 6px; overflow: hidden; }
+        .barra-progreso { height: 100%; transition: 0.5s; }
+        
+        .btn-restart-small { background: transparent; padding: 5px 10px; border-radius: 4px; font-size: 10px; cursor: pointer; font-weight: bold; transition: all 0.2s ease; }
+        .btn-repaso { border: 1px solid #2196F3; color: #2196F3; }
+        .btn-repaso:hover { background: #2196F3; color: white; }
+        .btn-reiniciar { border: 1px solid #FF9800; color: #FF9800; }
+        .btn-reiniciar:hover { background: #FF9800; color: white; }
+
+        .list-container { flex: 1; overflow-y: auto; padding: 15px; background: #f9f9f9; min-height: 0; }
+        .manzana-item { background: #fff; border: 1px solid #eee; padding: 15px; border-radius: 8px; margin-bottom: 10px; }
+        
+        #modal-historial { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100vh; background: rgba(0,0,0,0.6); z-index: 3000; justify-content: center; align-items: center; }
+        .historial-box { background: white; width: 450px; max-height: 80vh; border-radius: 10px; display: flex; flex-direction: column; overflow: hidden; }
+        .historial-header { background: #4A148C; color: white; padding: 15px 20px; display: flex; justify-content: space-between; }
+        .btn-close-modal { background: none; border: none; color: white; font-size: 20px; cursor: pointer; }
+        .historial-content { padding: 20px; overflow-y: auto; flex: 1; }
+        .anio-grupo { margin-bottom: 20px; }
+        .anio-titulo { background: #eee; padding: 8px 12px; border-radius: 5px; color: #4A148C; font-size: 14px; font-weight: bold; }
+        .historial-item { display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #eee; font-size: 13px; }
+
+        .leaflet-popup-content-wrapper { border-radius: 12px; box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
+        .leaflet-popup-content { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 15px; }
+        .popup-btn { background: #4A148C; color: white; border: none; padding: 8px; border-radius: 6px; font-size: 12px; cursor: pointer; width: 100%; margin-top: 5px; font-weight: bold; }
+        .popup-btn.danger { background: #ff4444; }
+        .popup-btn.success { background: #4CAF50; }
+
+        .leaflet-draw { display: none; }
+        body.modo-edicion .leaflet-draw { display: block; }
+
+        .leaflet-tooltip.label-territorio { background: rgba(74, 20, 140, 0.9); border: 1px solid rgba(255,255,255,0.5); box-shadow: 0 4px 6px rgba(0,0,0,0.3); border-radius: 12px; color: #ffffff; font-size: 13px !important; font-weight: bold; padding: 2px 8px; pointer-events: none; text-shadow: none; opacity: 1 !important; transition: transform 0.2s ease; }
+        .leaflet-tooltip-top:before, .leaflet-tooltip-bottom:before, .leaflet-tooltip-left:before, .leaflet-tooltip-right:before { display: none; }
+
+        @media print {
+            @page { size: letter landscape; margin: 0; }
+            body, html { width: 1040px !important; height: 720px !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important; background: white !important; }
+            #app-screen { display: block !important; width: 1040px !important; height: 720px !important; }
+            #sidebar { display: none !important; }
+            #map { position: absolute !important; top: 0 !important; left: 0 !important; width: 1040px !important; height: 720px !important; margin: 0 !important; }
+            .leaflet-control-container { display: none !important; }
+            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+        }
+    </style>
+</head>
+<body>
+    <div id="login-screen">
+        <div class="login-box">
+            <h2>Acceso Seguro</h2>
+            <p>Panel Maestro de Territorios</p>
+            <input type="text" id="adminUser" placeholder="Nombre Completo">
+            <input type="password" id="adminPass" placeholder="Contraseña">
+            <button class="login-btn" onclick="verificarAdmin()" id="btnIngresar">ENTRAR AL PANEL</button>
+            <p id="login-error"></p>
+        </div>
+    </div>
+    
+    <div id="app-screen">
+        <div id="sidebar">
+            <div class="header">
+                <div class="header-top">
+                    <div>
+                        <h3>🗺️ Gestión General</h3>
+                        <p id="admin-name" style="font-size: 11px; margin: 3px 0 0 0; color: #FFC107;"></p>
+                    </div>
+                </div>
+                <div class="botones-header">
+                    <button class="btn-top" onclick="descargarRespaldo(event)" style="background: #2196F3; border-color: #2196F3;">💾 Respaldo</button>
+                    <button class="btn-top" id="btn-toggle-pines" onclick="toggleVisibilidadPines()" style="background: #4CAF50; border-color: #4CAF50;">👁️ Pines</button>
+                    <button class="btn-top" onclick="imprimirS13()" style="background: #1976D2; border-color: #1976D2;">🖨️ S-13</button>
+                    <button class="btn-top" onclick="abrirHistorial()">📅 Historial</button>
+                    <button id="btn-cargar-todo" class="btn-top" onclick="cargarMapaCompleto()" style="background: #E91E63; border-color: #E91E63;">🗺️ Cargar Todo</button>
+                    <button class="btn-top" id="btn-edicion" onclick="toggleEdicion()" style="background: #795548; border-color: #795548;">✏️ Edición: OFF</button>
+                    <button class="btn-top" onclick="cerrarSesion()">Salir</button>
+                </div>
+            </div>
+            
+            <div class="tabs">
+                <button class="tab-btn active" onclick="cambiarPestana('tab-lista', this)">📋 Asignaciones</button>
+                <button class="tab-btn" onclick="cambiarPestana('tab-estadisticas', this)">📊 Estadísticas</button>
+            </div>
+            
+            <div id="tab-lista" class="tab-content active">
+                <div class="search-container">
+                    <input type="text" id="searchBar" placeholder="🔍 Buscar Territorio (Presiona Enter)..." onkeyup="filtrarLista(event)">
+                </div>
+                <div id="lista-manzanas" class="list-container"></div>
+            </div>
+
+            <div id="tab-estadisticas" class="tab-content">
+                <div class="stats-container" id="panel-estadisticas">
+                    <h4 style="margin: 0 0 10px 0; color: #4A148C; text-align: center;">Progreso por Territorio</h4>
+                    <p id="loading-stats" style="text-align: center; font-size: 12px; color: #999;">Cargando territorios...</p>
+                </div>
+            </div>
+
+        </div>
+        <div id="map"></div>
+    </div>
+    
+    <div id="modal-historial">
+        <div class="historial-box">
+            <div class="historial-header">
+                <h3 style="margin: 0;">📅 Historial de Territorios</h3>
+                <button class="btn-close-modal" onclick="cerrarHistorial()">✖</button>
+            </div>
+            <div class="historial-content" id="lista-historial"></div>
+        </div>
+    </div>
+
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyArLwvDxyCYeMofZ9RBk0qmX4_D4IsFDHw",
+            authDomain: "appterritorios.firebaseapp.com",
+            projectId: "appterritorios",
+            storageBucket: "appterritorios.firebasestorage.app",
+            messagingSenderId: "406188772954",
+            appId: "1:406188772954:web:fd517b4d989cf2eb01d263"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        
+        db.enablePersistence()
+          .catch(function(err) {
+              if (err.code == 'failed-precondition') {
+                  console.log("Múltiples pestañas abiertas, la persistencia solo funciona en una.");
+              } else if (err.code == 'unimplemented') {
+                  console.log("El navegador actual no soporta la persistencia offline.");
+              }
+          });
+
+        let map, drawnItems, poligonosEnMapa = {}, limitesEnMapa = {}, limitesGruposEnMapa = {}, pinesEnMapa = {};
+        
+        let cacheTerritorios = []; 
+        let cacheManzanas = []; 
+        let asignacionesGlobales = {};
+        let mapListeners = {}; 
+        let todoElMapaCargado = false;
+
+        let hiddenGrupos = {}; 
+        let hiddenTerritorios = {};
+        window.menusAbiertos = {}; 
+        let mostrandoPines = true;
+        let territorioAisladoParaImpresion = null; 
+        let modoEdicion = false; 
+        let listenerFirebase = null;
+
+        window.cambiarPestana = (idTab, btn) => {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById(idTab).classList.add('active');
+            btn.classList.add('active');
+        };
+
+        window.toggleEdicion = () => {
+            modoEdicion = !modoEdicion;
+            const btn = document.getElementById("btn-edicion");
+            if(modoEdicion) {
+                document.body.classList.add('modo-edicion');
+                btn.innerText = "✏️ Edición: ON"; btn.style.background = "#FF9800"; btn.style.borderColor = "#FF9800";
+            } else {
+                document.body.classList.remove('modo-edicion');
+                btn.innerText = "✏️ Edición: OFF"; btn.style.background = "#795548"; btn.style.borderColor = "#795548";
+            }
+        };
+
+        async function verificarAdmin() {
+            const user = document.getElementById("adminUser").value.trim();
+            const pass = document.getElementById("adminPass").value.trim();
+            const errorText = document.getElementById("login-error");
+            const btn = document.getElementById("btnIngresar");
+
+            if (!user || !pass) return mostrarError("Llena todos los campos.");
+            errorText.style.display = "none"; btn.innerText = "Verificando..."; btn.disabled = true;
+
+            try {
+                const snapshot = await db.collection("usuarios").where("nombre_completo", "==", user).where("contrasena", "==", pass).get();
+                if (!snapshot.empty && snapshot.docs[0].data().rol === "administrador") {
+                    document.getElementById("login-screen").style.display = "none";
+                    document.getElementById("app-screen").style.display = "flex";
+                    document.getElementById("admin-name").innerText = "Admin: " + snapshot.docs[0].data().nombre_completo;
+                    iniciarMapaYDatos();
+                } else { mostrarError("❌ Acceso Denegado o Credenciales Incorrectas."); }
+            } catch (error) { mostrarError("❌ Error de conexión."); }
+            btn.innerText = "ENTRAR AL PANEL"; btn.disabled = false;
+        }
+
+        function mostrarError(msg) { document.getElementById("login-error").innerText = msg; document.getElementById("login-error").style.display = "block"; }
+
+        function cerrarSesion() {
+            if (listenerFirebase) listenerFirebase();
+            for(let key in mapListeners) { mapListeners[key](); } 
+            document.getElementById("adminUser").value = ""; document.getElementById("adminPass").value = "";
+            document.getElementById("app-screen").style.display = "none"; document.getElementById("login-screen").style.display = "flex";
+            if(map) { map.remove(); map = null; }
+        }
+
+        function iniciarMapaYDatos() {
+            map = L.map('map').setView([27.4644, -109.9429], 16);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+            map.createPane('limitesGrupoPane'); map.getPane('limitesGrupoPane').style.zIndex = 350;
+            map.createPane('limitesTerritorioPane'); map.getPane('limitesTerritorioPane').style.zIndex = 400;
+            map.createPane('manzanasPane'); map.getPane('manzanasPane').style.zIndex = 450;
+            map.createPane('pinesPane'); map.getPane('pinesPane').style.zIndex = 500;
+            
+            map.on('zoomend', function() {
+                var zoomActual = map.getZoom();
+                var etiquetas = document.querySelectorAll('.label-territorio');
+                etiquetas.forEach(function(el) {
+                    if (zoomActual <= 13) { el.style.display = 'none'; } else { el.style.display = 'block'; }
+                });
+            });
+
+            drawnItems = new L.FeatureGroup(); map.addLayer(drawnItems);
+            new L.Control.Draw({ draw: { polygon: true, marker: false, circle: false, polyline: false, rectangle: false }, edit: { featureGroup: drawnItems } }).addTo(map);
+
+            db.collection("asignaciones").onSnapshot((snapshot) => {
+                asignacionesGlobales = {};
+                snapshot.forEach(doc => { asignacionesGlobales[doc.id] = doc.data(); });
+                renderizarListaLigera();
+            });
+
+            listenerFirebase = db.collection("territorios").onSnapshot((snapshot) => {
+                cacheTerritorios = [];
+                let stats = {};
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    cacheTerritorios.push({ id: doc.id, ...data });
+                    stats[doc.id] = { total: data.manzanas || 0, trabajadas: data.trabajadas || 0, dia: data.dia };
+                });
+                renderizarEstadisticas(stats);
+                renderizarListaLigera();
+                // MAGIA APLICADA: Forzamos al mapa a redibujarse para colorear la zona verde
+                refrescarVisibilidadMapa();
+            });
+
+            db.collection("limites_territorios").onSnapshot((snapshot) => {
+                for (let id in limitesEnMapa) { map.removeLayer(limitesEnMapa[id].layer); }
+                limitesEnMapa = {};
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    if (data.coordenadas) {
+                        const pts = data.coordenadas.map(p => [p.latitude, p.longitude]);
+                        const poli = L.polygon(pts, { pane: 'limitesTerritorioPane', color: '#FF3D00', weight: 2, fillOpacity: 0, dashArray: '5, 5' });
+                        poli.bindTooltip(`T-${data.territorio}`, { permanent: true, direction: "center", className: "label-territorio", interactive: false });
+                        poli.bindPopup(`
+                        <div style="text-align:center;">
+                            <b style="color: #4A148C; font-size: 15px;">Territorio ${data.territorio}</b><br><span style="color:#888; font-size:11px;">Límite General</span><br><br>
+                            <button class="popup-btn success" onclick="asignarTerritorio(event, '${data.territorio}')">➕ Asignar</button>
+                            <button class="popup-btn danger" onclick="borrarLimite('${doc.id}')">🗑️ Borrar Límite</button>
+                        </div>`);
+                        limitesEnMapa[doc.id] = { layer: poli, territorio: data.territorio };
+                    }
+                });
+                refrescarVisibilidadMapa(); 
+            });
+
+            db.collection("limites_grupos").onSnapshot((snapshot) => {
+                for (let id in limitesGruposEnMapa) { map.removeLayer(limitesGruposEnMapa[id].layer); }
+                limitesGruposEnMapa = {};
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    if (data.coordenadas) {
+                        const pts = data.coordenadas.map(p => [p.latitude, p.longitude]);
+                        const poli = L.polygon(pts, { pane: 'limitesGrupoPane', color: data.color || '#2962FF', weight: 2, fillOpacity: 0, dashArray: '6, 6' });
+                        poli.bindPopup(`<div style="text-align:center;"><b style="font-size:16px; color:${data.color||'#2962FF'}">Grupo: ${data.nombre}</b><br><br><button class="popup-btn danger" onclick="borrarLimiteGrupo('${doc.id}')">🗑️ Borrar Grupo</button></div>`);
+                        limitesGruposEnMapa[doc.id] = { layer: poli, nombre: data.nombre };
+                    }
+                });
+                refrescarVisibilidadMapa();
+            });
+
+            map.on(L.Draw.Event.CREATED, async function (e) {
+                const coords = e.layer.getLatLngs()[0].map(p => ({ latitude: p.lat, longitude: p.lng }));
+                const tipo = prompt("¿Qué acabas de dibujar?\n1 = MANZANA\n2 = LÍMITE DE TERRITORIO\n3 = GRUPO DE DÍA", "1");
+                if (tipo === "3") {
+                    const nG = prompt("Nombre o Día del Grupo:"); const colorG = prompt("¿Color? (Ej. blue, red):", "blue");
+                    if (nG) { await db.collection("limites_grupos").add({ nombre: nG, coordenadas: coords, color: colorG || "blue" }); }
+                } else if (tipo === "2") {
+                    const nT = prompt("Número del TERRITORIO delimitado:");
+                    if (nT) { await db.collection("limites_territorios").add({ territorio: nT, coordenadas: coords }); }
+                } else if (tipo === "1") {
+                    const nD = prompt("¿A qué DÍA pertenece? (Ej. Sábado):", "General");
+                    const nT = prompt("Número de TERRITORIO:"); const nM = prompt("Número de MANZANA:");
+                    if (nD && nT && nM) { await db.collection("manzanas").add({ dia: nD, territorio: nT, numero: parseInt(nM), coordenadas: coords, estado: "Pendiente" }); }
+                }
+            });
+        }
+
+        function crearPoligonoManzana(data, id) {
+            if (!data.coordenadas) return;
+            const pts = data.coordenadas.map(p => [p.latitude, p.longitude]);
+            
+            let colorBorde = '#4A148C'; let colorRelleno = '#9C27B0'; let txtEst = 'orange';
+            if (data.estado === 'Trabajado') { colorBorde = '#2E7D32'; colorRelleno = '#4CAF50'; txtEst = 'green';}
+            if (data.estado === 'Repasando') { colorBorde = '#1565C0'; colorRelleno = '#2196F3'; txtEst = '#2196F3';}
+
+            const estiloNormal = { pane: 'manzanasPane', color: colorBorde, fillColor: colorRelleno, weight: 1, fillOpacity: 0.1 };
+            const estiloHover = { weight: 3, fillOpacity: 0.7 };
+            const poli = L.polygon(pts, estiloNormal);
+
+            poli.on('mouseover', function () { this.setStyle(estiloHover); });
+            poli.on('mouseout', function () { this.setStyle(estiloNormal); });
+
+            let popupHTML = `<div style="text-align: center;"><b style="color: #4A148C; font-size: 16px;">Territorio ${data.territorio}</b><br><b style="font-size:14px;">Manzana ${data.numero}</b><br><span style="color: #888; font-size: 11px;">${data.dia || 'General'}</span><br><hr style="border:0; border-top:1px solid #eee; margin:8px 0;"><span style="color: ${txtEst}; font-weight: bold; font-size:14px;">${data.estado}</span></div>`;
+            if(data.fecha_trabajado) popupHTML += `<div style="text-align: center; color: #888; font-size:11px; margin-top:5px;">📅 ${data.fecha_trabajado}</div>`;
+            if(data.notas) popupHTML += `<div style="background: #fff9c4; padding: 8px; border-radius: 6px; font-size: 11px; margin-top: 8px; border-left: 3px solid #FFC107;">📝 ${data.notas}</div>`;
+            poli.bindPopup(popupHTML);
+            
+            if(poligonosEnMapa[id]) map.removeLayer(poligonosEnMapa[id]);
+            poligonosEnMapa[id] = poli;
+        }
+
+        window.toggleTerritorio = (event, ter, btnId) => {
+            event.stopPropagation();
+            const btn = document.getElementById(btnId);
+            const yaCargado = cacheManzanas.some(m => m.territorio == ter);
+            
+            if (!yaCargado && !todoElMapaCargado) {
+                btn.innerText = "⏳...";
+                mapListeners[ter] = db.collection("manzanas").where("territorio", "==", ter.toString()).onSnapshot((snapshot) => {
+                    cacheManzanas = cacheManzanas.filter(m => m.territorio != ter); 
+                    snapshot.forEach(doc => {
+                        const data = doc.data(); const id = doc.id;
+                        cacheManzanas.push({ id, ...data });
+                        crearPoligonoManzana(data, id);
+                    });
+                    hiddenTerritorios[ter] = false;
+                    btn.innerText = "👁️ OCULTAR"; btn.style.background = "#4A148C"; 
+                    enfocarTerritorioCompleto(ter);
+                    refrescarVisibilidadMapa();
+                    renderizarListaLigera();
+                });
+
+                db.collection("notas_privadas").where("territorio_id", "==", ter.toString()).onSnapshot((snapshot) => {
+                    snapshot.forEach(doc => {
+                        const data = doc.data(); const id = doc.id;
+                        if(pinesEnMapa[id]) map.removeLayer(pinesEnMapa[id]);
+                        var notaIcon = L.divIcon({ html: '<div style="font-size: 24px; text-shadow: 1px 1px 2px rgba(0,0,0,0.5);">📌</div>', className: 'icono-nota', iconSize: [24, 24], iconAnchor: [12, 24] });
+                        const marker = L.marker([data.lat, data.lng], {icon: notaIcon, pane: 'pinesPane'});
+                        marker.bindPopup(`<div style="text-align:center;"><b style="color:#2196F3; font-size:14px;">👤 ${data.creador}</b><br><br><i style="color:#555;">${data.texto}</i><br><br><button class="popup-btn danger" onclick="borrarPinDefinitivo('${id}')">🗑️ Eliminar Nota</button></div>`);
+                        if (mostrandoPines) marker.addTo(map);
+                        pinesEnMapa[id] = marker;
+                    });
+                });
+                return;
+            }
+
+            hiddenTerritorios[ter] = !hiddenTerritorios[ter];
+            if (hiddenTerritorios[ter]) {
+                btn.innerText = "👁️ VER"; btn.style.background = "#888";
+            } else {
+                btn.innerText = "👁️ OCULTAR"; btn.style.background = "#4A148C"; enfocarTerritorioCompleto(ter);
+            }
+            refrescarVisibilidadMapa();
+            renderizarListaLigera();
+        };
+
+        window.cargarMapaCompleto = () => {
+            if(confirm("⚠️ Esto descargará todas las manzanas de la ciudad y consumirá más datos. ¿Deseas continuar?")) {
+                const btn = document.getElementById("btn-cargar-todo");
+                btn.innerText = "⏳ Cargando Todo..."; btn.disabled = true;
+                
+                db.collection("manzanas").onSnapshot((snapshot) => {
+                    cacheManzanas = [];
+                    for (let id in poligonosEnMapa) { map.removeLayer(poligonosEnMapa[id]); }
+                    poligonosEnMapa = {};
+                    
+                    snapshot.forEach(doc => {
+                        const data = doc.data(); const id = doc.id;
+                        cacheManzanas.push({ id, ...data });
+                        crearPoligonoManzana(data, id);
+                        hiddenTerritorios[data.territorio] = false; 
+                    });
+                    
+                    todoElMapaCargado = true;
+                    btn.innerText = "🗺️ Todo Cargado";
+                    renderizarListaLigera();
+                    refrescarVisibilidadMapa();
+                });
+
+                db.collection("notas_privadas").onSnapshot((snapshot) => {
+                    for (let id in pinesEnMapa) { map.removeLayer(pinesEnMapa[id]); }
+                    pinesEnMapa = {};
+                    snapshot.forEach(doc => {
+                        const data = doc.data(); const id = doc.id;
+                        var notaIcon = L.divIcon({ html: '<div style="font-size: 24px; text-shadow: 1px 1px 2px rgba(0,0,0,0.5);">📌</div>', className: 'icono-nota', iconSize: [24, 24], iconAnchor: [12, 24] });
+                        const marker = L.marker([data.lat, data.lng], {icon: notaIcon, pane: 'pinesPane'});
+                        marker.bindPopup(`<div style="text-align:center;"><b style="color:#2196F3; font-size:14px;">👤 ${data.creador}</b><br><br><i style="color:#555;">${data.texto}</i><br><br><button class="popup-btn danger" onclick="borrarPinDefinitivo('${id}')">🗑️ Eliminar Nota</button></div>`);
+                        if (mostrandoPines) marker.addTo(map);
+                        pinesEnMapa[id] = marker;
+                    });
+                });
+            }
+        };
+
+        // --- MAGIA VISUAL: EL EFECTO DE ZONA VERDE ---
+        window.refrescarVisibilidadMapa = () => {
+            let grupoDeCadaTerritorio = {};
+            let estadoDeCadaTerritorio = {}; 
+            
+            cacheTerritorios.forEach(t => { 
+                grupoDeCadaTerritorio[t.id] = t.dia || 'General'; 
+                estadoDeCadaTerritorio[t.id] = t.estado; // Obtenemos su estado
+            });
+            const aislado = territorioAisladoParaImpresion; 
+
+            // 1. Ocultar o Mostrar las Manzanas Chiquitas
+            cacheManzanas.forEach(mza => {
+                let layer = poligonosEnMapa[mza.id];
+                if (!layer) return;
+                
+                let isHidden = hiddenGrupos[mza.dia || 'General'] || hiddenTerritorios[mza.territorio];
+                if (aislado && mza.territorio != aislado) isHidden = true; 
+                
+                // Si el territorio está en descanso, escondemos sus manzanitas
+                if (estadoDeCadaTerritorio[mza.territorio] === 'descansando') {
+                    isHidden = true;
+                }
+
+                if (isHidden) { if (map.hasLayer(layer)) map.removeLayer(layer); } 
+                else { if (!map.hasLayer(layer)) map.addLayer(layer); }
+            });
+
+            // 2. Colorear el Marco Grande del Territorio
+            for (let id in limitesEnMapa) {
+                let { layer, territorio } = limitesEnMapa[id];
+                let grupoPertenece = grupoDeCadaTerritorio[territorio];
+                let isHidden = hiddenTerritorios[territorio] || (grupoPertenece && hiddenGrupos[grupoPertenece]);
+                if (aislado && territorio != aislado) isHidden = true;
+                
+                if (isHidden) { 
+                    if (map.hasLayer(layer)) map.removeLayer(layer); 
+                } else { 
+                    if (!map.hasLayer(layer)) map.addLayer(layer); 
+                }
+
+                // Aplicamos el relleno Verde si está en descanso
+                const estaDescansando = estadoDeCadaTerritorio[territorio] === 'descansando';
+                if (estaDescansando) {
+                    layer.setStyle({ color: '#2E7D32', fillColor: '#4CAF50', fillOpacity: 0.4, dashArray: '' });
+                    layer.setTooltipContent(`✅ T-${territorio}`);
+                } else {
+                    layer.setStyle({ color: '#FF3D00', fillColor: 'transparent', fillOpacity: 0, dashArray: '5, 5' });
+                    layer.setTooltipContent(`T-${territorio}`);
+                }
+            }
+
+            for (let id in limitesGruposEnMapa) {
+                let { layer, nombre } = limitesGruposEnMapa[id];
+                let isHidden = hiddenGrupos[nombre];
+                if (aislado) isHidden = true; 
+                if (isHidden) { if (map.hasLayer(layer)) map.removeLayer(layer); } else { if (!map.hasLayer(layer)) map.addLayer(layer); }
+            }
+        };
+
+        window.imprimirMapaTerritorio = (event, ter) => {
+            if(event) event.stopPropagation(); 
+            const yaCargado = cacheManzanas.some(m => m.territorio == ter);
+            if (!yaCargado) return alert("⚠️ Por favor, descarga el territorio primero (botón azul 📥 DESCARGAR) antes de imprimir el mapa.");
+            
+            territorioAisladoParaImpresion = ter;
+            refrescarVisibilidadMapa();
+            
+            const sidebar = document.getElementById('sidebar');
+            const mapDiv = document.getElementById('map');
+            
+            sidebar.style.display = 'none';
+            mapDiv.style.position = 'fixed'; mapDiv.style.top = '0'; mapDiv.style.left = '0';
+            mapDiv.style.width = '1040px'; mapDiv.style.height = '720px'; mapDiv.style.zIndex = '99999';
+            
+            setTimeout(() => {
+                map.invalidateSize(true);
+                const mzas = cacheManzanas.filter(m => m.territorio == ter);
+                if(mzas.length > 0) { 
+                    let pts = []; 
+                    mzas.forEach(m => pts.push(...m.coordenadas.map(p => [p.latitude, p.longitude]))); 
+                    map.fitBounds(L.polygon(pts).getBounds(), { padding: [50, 50], animate: false }); 
+                }
+
+                setTimeout(() => {
+                    window.print();
+                    
+                    sidebar.style.display = 'flex';
+                    mapDiv.style.position = 'relative'; mapDiv.style.width = '100%'; mapDiv.style.height = '100%'; mapDiv.style.zIndex = '1';
+                    territorioAisladoParaImpresion = null;
+                    
+                    setTimeout(() => {
+                        map.invalidateSize(true); refrescarVisibilidadMapa();
+                        if(mzas.length > 0) { 
+                            let pts = []; 
+                            mzas.forEach(m => pts.push(...m.coordenadas.map(p => [p.latitude, p.longitude]))); 
+                            map.fitBounds(L.polygon(pts).getBounds(), { padding: [50, 50], animate: false }); 
+                        }
+                    }, 100);
+                }, 1500); 
+            }, 300);
+        };
+
+        window.filtrarLista = (event) => { 
+            renderizarListaLigera();
+            const t = document.getElementById("searchBar").value.toLowerCase().trim();
+            if (event && event.key === 'Enter' && t !== "") {
+                const existe = cacheTerritorios.some(m => m.id.toString() === t);
+                if(existe) { 
+                    const btnId = `btn-ter-${t}`;
+                    if(document.getElementById(btnId)) {
+                       if(hiddenTerritorios[t] !== false) toggleTerritorio(new Event('click'), t, btnId);
+                    }
+                }
+            }
+        };
+
+        window.toggleMenu = (idLista, idIcono) => { 
+            const lista = document.getElementById(idLista); 
+            const icono = document.getElementById(idIcono); 
+            if (lista.style.display === "none" || lista.style.display === "") { 
+                lista.style.display = "block"; 
+                icono.innerText = "➖"; 
+                window.menusAbiertos[idLista] = true; 
+            } else { 
+                lista.style.display = "none"; 
+                icono.innerText = "➕"; 
+                window.menusAbiertos[idLista] = false; 
+            } 
+        };
+
+        window.toggleGrupo = (event, dia, btnId) => { event.stopPropagation(); hiddenGrupos[dia] = !hiddenGrupos[dia]; const btn = document.getElementById(btnId); if (hiddenGrupos[dia]) { btn.innerText = "👁️ VER"; btn.style.background = "#888"; } else { btn.innerText = "👁️ OCULTAR"; btn.style.background = "rgba(255,255,255,0.2)"; enfocarGrupo(dia); } refrescarVisibilidadMapa(); };
+        window.toggleVisibilidadPines = () => { mostrandoPines = !mostrandoPines; const btn = document.getElementById("btn-toggle-pines"); if (mostrandoPines) { btn.innerText = "👁️ Pines"; btn.style.background = "#4CAF50"; btn.style.borderColor = "#4CAF50"; for (let id in pinesEnMapa) { map.addLayer(pinesEnMapa[id]); } } else { btn.innerText = "🚫 Pines"; btn.style.background = "#888"; btn.style.borderColor = "#888"; for (let id in pinesEnMapa) { map.removeLayer(pinesEnMapa[id]); } } };
+        window.borrarPinDefinitivo = async (id) => { if (confirm("¿Estás seguro de que deseas eliminar esta nota del mapa definitivamente?")) { try { await db.collection("notas_privadas").doc(id).delete(); } catch (error) { alert("❌ Error al borrar el pin."); } } };
+
+        window.enfocarGrupo = (dia) => { 
+            let pts = [];
+            for (let id in limitesEnMapa) {
+                let limit = limitesEnMapa[id];
+                let grupoPertenece = cacheTerritorios.find(t => t.id == limit.territorio)?.dia || 'General';
+                if (grupoPertenece === dia) { pts.push(...limit.layer.getLatLngs()[0]); }
+            }
+            if(pts.length > 0) { map.fitBounds(L.polygon(pts).getBounds(), { padding: [50, 50] }); }
+        };
+
+        window.enfocarTerritorioCompleto = (ter) => { 
+            let mzas = cacheManzanas.filter(m => m.territorio == ter); 
+            if(mzas.length > 0) { 
+                let pts = []; mzas.forEach(m => pts.push(...m.coordenadas.map(p => [p.latitude, p.longitude]))); 
+                map.fitBounds(L.polygon(pts).getBounds(), { padding: [50, 50] }); 
+                return;
+            }
+            for (let id in limitesEnMapa) {
+                if (limitesEnMapa[id].territorio == ter) {
+                    map.fitBounds(limitesEnMapa[id].layer.getBounds(), { padding: [50, 50] });
+                    return;
+                }
+            }
+        };
+
+        window.enfocarManzana = (id) => { const mza = cacheManzanas.find(i => i.id === id); if (mza) { map.fitBounds(L.polygon(mza.coordenadas.map(p => [p.latitude, p.longitude])).getBounds(), { padding: [80, 80] }); if (poligonosEnMapa[id]) poligonosEnMapa[id].openPopup(); } };
+
+        window.moverTerritorio = async (event, ter, grupoActual) => { event.stopPropagation(); const nuevoGrupo = prompt(`El Territorio ${ter} está en el grupo "${grupoActual}".\n\n¿A qué NUEVO GRUPO de día quieres moverlo? (Ej. Domingo, Martes):`, grupoActual); if (!nuevoGrupo || nuevoGrupo.trim() === "" || nuevoGrupo === grupoActual) return; if(confirm(`¿Seguro que quieres mover todas las manzanas del Territorio ${ter} al grupo "${nuevoGrupo}"?`)) { try { const snapshot = await db.collection("manzanas").where("territorio", "==", ter).get(); const batch = db.batch(); snapshot.forEach(doc => batch.update(doc.ref, { dia: nuevoGrupo.trim() })); await batch.commit(); } catch (e) { alert("❌ Error al mover el territorio."); } } };
+        window.renombrarTerritorio = async (event, terActual) => { event.stopPropagation(); const nuevoTer = prompt(`Modificar número del Territorio ${terActual}.\n¿Cuál será el NUEVO NÚMERO del territorio?`, terActual); if (!nuevoTer || nuevoTer.trim() === "" || nuevoTer == terActual) return; if(confirm(`⚠️ ATENCIÓN: Estás a punto de cambiar el Territorio ${terActual} al número ${nuevoTer}.\n\nEsto actualizará automáticamente:\n- Todas sus manzanas\n- Su contorno rojo en el mapa\n- Las asignaciones de los hermanos.\n\n¿Proceder?`)) { try { const batch = db.batch(); const snapManzanas = await db.collection("manzanas").where("territorio", "==", terActual).get(); snapManzanas.forEach(doc => batch.update(doc.ref, { territorio: nuevoTer.trim() })); const snapLimites = await db.collection("limites_territorios").where("territorio", "==", terActual).get(); snapLimites.forEach(doc => batch.update(doc.ref, { territorio: nuevoTer.trim() })); const asigRefViejo = db.collection("asignaciones").doc(`ter-${terActual}`); const asigSnapViejo = await asigRefViejo.get(); if (asigSnapViejo.exists) { const asigRefNuevo = db.collection("asignaciones").doc(`ter-${nuevoTer.trim()}`); batch.set(asigRefNuevo, asigSnapViejo.data()); batch.delete(asigRefViejo); } await batch.commit(); alert(`✅ ¡Éxito! El territorio ahora es el número ${nuevoTer}`); } catch (e) { alert("❌ Error al renombrar territorio."); } } };
+        window.renombrarManzana = async (event, idManzana, numActual) => { event.stopPropagation(); const nuevoNum = prompt(`Corregir número de Manzana (Actual: ${numActual}):`, numActual); if (!nuevoNum || nuevoNum.trim() === "" || nuevoNum == numActual) return; if(confirm(`¿Cambiar al número de manzana ${nuevoNum}?`)) { try { await db.collection("manzanas").doc(idManzana).update({ numero: parseInt(nuevoNum) }); } catch(e) { alert("❌ Error al editar la manzana."); } } };
+        window.renombrarGrupo = async (event, nombreViejo) => { event.stopPropagation(); const nombreNuevo = prompt(`Renombrar el grupo "${nombreViejo}".\n¿Cuál será el nuevo nombre?`, nombreViejo); if (!nombreNuevo || nombreNuevo.trim() === "" || nombreNuevo === nombreViejo) return; if(confirm(`¿Actualizar este grupo a "${nombreNuevo}"?`)) { try { const batch = db.batch(); const snapshot = await db.collection("manzanas").where("dia", "==", nombreViejo).get(); snapshot.forEach(doc => batch.update(doc.ref, { dia: nombreNuevo.trim() })); const snapLimites = await db.collection("limites_grupos").where("nombre", "==", nombreViejo).get(); snapLimites.forEach(doc => batch.update(doc.ref, { nombre: nombreNuevo.trim() })); await batch.commit(); } catch(e) { alert("❌ Error al renombrar el grupo."); } } };
+        window.editarNombresAsignados = async (event, ter) => { event.stopPropagation(); const asigActual = asignacionesGlobales[`ter-${ter}`]; if (!asigActual) return; let actuales = []; if (asigActual.publicadores) actuales = asigActual.publicadores; else if (asigActual.publicador) actuales = [asigActual.publicador]; const textoActual = actuales.join(", "); const nuevosNombres = prompt(`Corregir nombres en el Territorio ${ter}:\n(Separa los nombres con comas si son varios)`, textoActual); if (nuevosNombres && nuevosNombres.trim() !== "" && nuevosNombres !== textoActual) { const arrayNuevos = nuevosNombres.split(",").map(n => n.trim()).filter(n => n !== ""); await db.collection("asignaciones").doc(`ter-${ter}`).set({ publicadores: arrayNuevos }, { merge: true }); } };
+        window.asignarTerritorio = async (event, ter) => { if(event) event.stopPropagation(); const pub = prompt(`¿A quién le vas a prestar el Territorio ${ter}? (Puedes agregar otro si ya está prestado)`); if(pub) { const docRef = db.collection("asignaciones").doc(`ter-${ter}`); const asigActual = asignacionesGlobales[`ter-${ter}`]; let actuales = []; if (asigActual) { if (asigActual.publicadores) actuales = asigActual.publicadores; else if (asigActual.publicador) actuales = [asigActual.publicador]; } if (actuales.includes(pub)) { alert("⚠️ El hermano ya está asignado a este territorio."); return; } actuales.push(pub); await docRef.set({ publicadores: actuales, fecha_asignacion: new Date().toLocaleDateString('es-ES') }, { merge: true }); map.closePopup(); } };
+        window.devolverTerritorio = async (event, ter) => { if(event) event.stopPropagation(); if(confirm(`¿Confirmas que el Territorio ${ter} fue devuelto por completo?`)) { await db.collection("asignaciones").doc(`ter-${ter}`).delete(); } };
+        window.borrarManzana = async (id) => { if(!modoEdicion) return alert("⚠️ Activa el MODO EDICIÓN en la parte superior para poder borrar."); if (confirm("¿Seguro que deseas borrar esta manzana?")) await db.collection("manzanas").doc(id).delete(); };
+        window.borrarLimite = async (id) => { if(!modoEdicion) return alert("⚠️ Activa el MODO EDICIÓN para borrar."); if (confirm("¿Borrar este límite rojo?")) await db.collection("limites_territorios").doc(id).delete(); map.closePopup(); };
+        window.borrarLimiteGrupo = async (id) => { if(!modoEdicion) return alert("⚠️ Activa el MODO EDICIÓN para borrar."); if (confirm("¿Borrar este marco de Grupo?")) await db.collection("limites_grupos").doc(id).delete(); map.closePopup(); };
+
+        window.descargarRespaldo = async (event) => {
+            if (!confirm("¿Deseas descargar un respaldo completo de toda la base de datos?")) return;
+            const btn = event.target; const textoOriginal = btn.innerText; btn.innerText = "⏳ Empaquetando..."; btn.disabled = true;
+            try {
+                const colecciones = ["manzanas", "asignaciones", "limites_territorios", "limites_grupos", "usuarios", "historial_territorios", "notas_privadas"];
+                let datosRespaldo = { fecha_creacion: new Date().toISOString(), colecciones: {} };
+                for (let col of colecciones) {
+                    const snapshot = await db.collection(col).get();
+                    datosRespaldo.colecciones[col] = {};
+                    snapshot.forEach(doc => { datosRespaldo.colecciones[col][doc.id] = doc.data(); });
+                }
+                const blob = new Blob([JSON.stringify(datosRespaldo, null, 2)], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a"); a.href = url; a.download = `Respaldo_Territorios_${new Date().toLocaleDateString('es-ES').replace(/\//g, '-')}.json`;
+                document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+                alert("✅ ¡Respaldo descargado con éxito!");
+            } catch (error) { alert("❌ Error al generar el respaldo."); } finally { btn.innerText = textoOriginal; btn.disabled = false; }
+        };
+
+        function renderizarListaLigera() {
+            const container = document.getElementById("lista-manzanas"); container.innerHTML = "";
+            const gruposDia = {};
+            const filtro = document.getElementById("searchBar").value.toLowerCase().trim();
+
+            cacheTerritorios.forEach((t) => {
+                if (filtro && !t.id.toString().includes(filtro) && !(t.dia && t.dia.toLowerCase().includes(filtro))) return;
+                const dia = t.dia || "General";
+                if (!gruposDia[dia]) gruposDia[dia] = [];
+                gruposDia[dia].push(t);
+            });
+
+            const buscando = filtro !== "";
+
+            const obtenerPrioridadGrupo = (diaStr) => {
+                let s = diaStr.toLowerCase().trim();
+                if (/^grupo\s*\d+$/.test(s)) return parseInt(s.replace(/\D/g, ''));
+                if (/^\d+$/.test(s)) return parseInt(s);
+                if (s.includes("lunes")) return 101; if (s.includes("martes")) return 102; if (s.includes("miercoles") || s.includes("miércoles")) return 103;
+                if (s.includes("jueves")) return 104; if (s.includes("viernes")) return 105;
+                if (s.includes("sabado") || s.includes("sábado")) { if (s.includes("tarde")) return 107; return 106; }
+                if (s.includes("domingo")) return 108; return 999;
+            };
+
+            Object.keys(gruposDia).sort((a, b) => {
+                let pA = obtenerPrioridadGrupo(a); let pB = obtenerPrioridadGrupo(b);
+                if (pA !== pB) return pA - pB; return a.localeCompare(b);     
+            }).forEach(dia => {
+                const idDia = dia.replace(/\s+/g, '-'); 
+                const estaAbiertoDia = window.menusAbiertos[`lista-dia-${idDia}`];
+                const displayDia = buscando || estaAbiertoDia ? "block" : "none";
+                const iconoDia = buscando || estaAbiertoDia ? "➖" : "➕";
+                
+                let html = `<div onclick="toggleMenu('lista-dia-${idDia}', 'icono-dia-${idDia}')" style="background: #4A148C; color: white; padding: 12px; border-radius: 5px; cursor: pointer; margin-bottom: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+                                <div style="display:flex; justify-content:space-between; align-items:center; width:100%; font-weight:bold;">
+                                    <div style="display:flex; align-items:center; gap:8px;">
+                                        <span><span id="icono-dia-${idDia}">${iconoDia}</span> 📅 Grupo: ${dia}</span>
+                                    </div>
+                                    <div style="display:flex; align-items:center; gap: 10px;">
+                                        <button onclick="renombrarGrupo(event, '${dia}')" style="background:rgba(255,255,255,0.3); border:none; cursor:pointer; font-size:12px; border-radius:4px; padding:4px 8px;" title="Renombrar Grupo">✏️</button>
+                                        <button id="btn-grupo-${idDia}" onclick="toggleGrupo(event, '${dia}', 'btn-grupo-${idDia}')" style="background:${hiddenGrupos[dia] ? '#888' : 'rgba(255,255,255,0.2)'}; color:white; border:1px solid rgba(255,255,255,0.5); padding:4px 8px; border-radius:4px; cursor:pointer; font-size:11px; font-weight:bold;">
+                                            ${hiddenGrupos[dia] ? '👁️ VER' : '👁️ OCULTAR'}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="lista-dia-${idDia}" style="display: ${displayDia}; padding-left: 10px; border-left: 3px solid #4A148C; margin-left: 5px; margin-bottom: 20px;">`;
+
+                gruposDia[dia].sort((a, b) => Number(a.id) - Number(b.id)).forEach(t => {
+                    const ter = t.id;
+                    const idTer = `${idDia}-ter-${ter}`;
+                    const estaAbiertoTer = window.menusAbiertos[`lista-${idTer}`];
+                    const displayTer = buscando || estaAbiertoTer ? "block" : "none";
+                    const iconoTer = buscando || estaAbiertoTer ? "➖" : "➕";
+
+                    const asig = asignacionesGlobales[`ter-${ter}`];
+                    let pubsStr = ""; let estaAsignado = false;
+                    if (asig) { if (asig.publicadores && asig.publicadores.length > 0) { pubsStr = asig.publicadores.join(", "); estaAsignado = true; } else if (asig.publicador) { pubsStr = asig.publicador; estaAsignado = true; } }
+
+                    const uiAsignacion = estaAsignado 
+                        ? `<div style="margin-top:10px; font-size:11px; background:rgba(255,255,255,0.8); padding:8px; border-radius:6px; display:flex; flex-direction: column; gap: 8px;">
+                             <div style="display:flex; justify-content:space-between; align-items:center;">
+                                 <span style="color:#D32F2F; font-size:12px;">👤 <b>${pubsStr}</b> <br> <span style="color:#666; font-size:10px;">Salida: ${asig.fecha_asignacion}</span></span>
+                                 <button onclick="devolverTerritorio(event, '${ter}')" style="background:#ff4444; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; font-weight:bold;">✖ Devolver</button>
+                             </div>
+                             <div style="display:flex; gap: 5px;">
+                                <button onclick="editarNombresAsignados(event, '${ter}')" style="flex:1; background:#FF9800; color:white; border:none; padding:6px; border-radius:4px; cursor:pointer; font-weight:bold;" title="Corregir Nombres">✏️ Editar Nombres</button>
+                                <button onclick="asignarTerritorio(event, '${ter}')" style="flex:1; background:#4A148C; color:white; border:none; padding:6px; border-radius:4px; cursor:pointer; font-weight:bold;">➕ Añadir a otro</button>
+                             </div>
+                           </div>`
+                        : `<div style="margin-top:10px;">
+                             <button onclick="asignarTerritorio(event, '${ter}')" style="width:100%; background:#4CAF50; color:white; border:none; padding:8px; border-radius:6px; cursor:pointer; font-weight:bold; font-size: 12px;">➕ Asignar Territorio a Publicador</button>
+                           </div>`;
+
+                    const yaCargado = cacheManzanas.some(m => m.territorio == ter);
+                    let btnVerText = yaCargado ? (hiddenTerritorios[ter] ? '👁️ VER' : '👁️ OCULTAR') : '📥 DESCARGAR';
+                    let btnVerColor = yaCargado ? (hiddenTerritorios[ter] ? '#888' : '#4A148C') : '#2196F3';
+
+                    // --- ETIQUETA VISUAL DE DESCANSANDO ---
+                    const isDescansando = t.estado === 'descansando';
+                    const badgeDescanso = isDescansando ? `<span style="background:#4CAF50; color:white; padding:3px 6px; border-radius:4px; font-size:10px; margin-left:5px; box-shadow: 0 1px 2px rgba(0,0,0,0.2);">✅ Descansando</span>` : '';
+
+                    html += `<div onclick="toggleMenu('lista-${idTer}', 'icono-${idTer}')" style="background: #e1bee7; color: #4A148C; padding: 12px; border-radius: 8px; cursor: pointer; margin-bottom: 8px; margin-top: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                                <div style="display: flex; flex-direction: column; gap: 10px;">
+                                    <div style="display: flex; justify-content: space-between; align-items:center; font-weight: bold;">
+                                        <div style="display:flex; align-items:center; gap:5px; flex-wrap: wrap;">
+                                            <span><span id="icono-${idTer}">${iconoTer}</span> Territorio ${ter}</span>
+                                            <span style="font-size: 11px; color: #666; font-weight: normal;">(${t.manzanas} mzas)</span>
+                                            ${badgeDescanso}
+                                        </div>
+                                        <button id="btn-ter-${idTer}" onclick="toggleTerritorio(event, '${ter}', 'btn-ter-${idTer}')" style="background:${btnVerColor}; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:11px; font-weight:bold;">
+                                            ${btnVerText}
+                                        </button>
+                                    </div>
+                                    <div style="display: flex; gap: 5px;">
+                                        <button onclick="imprimirMapaTerritorio(event, '${ter}')" style="flex: 1; background:#607D8B; color:white; border:none; padding:8px 4px; border-radius:4px; cursor:pointer; font-size:10px; font-weight:bold;" title="Aislar e Imprimir Mapa">🖨️ MAPA</button>
+                                        <button onclick="moverTerritorio(event, '${ter}', '${dia}')" style="flex: 1; background:#2196F3; color:white; border:none; padding:8px 4px; border-radius:4px; cursor:pointer; font-size:10px; font-weight:bold;" title="Mover a otro grupo">🔄 MOVER</button>
+                                        <button onclick="renombrarTerritorio(event, '${ter}')" style="flex: 1; background:rgba(0,0,0,0.1); color:#333; border:none; padding:8px 4px; border-radius:4px; cursor:pointer; font-size:10px; font-weight:bold;" title="Editar Número">✏️ EDITAR</button>
+                                    </div>
+                                </div>
+                                ${uiAsignacion}
+                            </div>
+                            <div id="lista-${idTer}" style="display: ${displayTer}; padding-left: 15px; border-left: 2px solid #e1bee7; margin-left: 10px; margin-bottom: 10px;">`;
+
+                    if (yaCargado) {
+                        const manzanasDelTer = cacheManzanas.filter(m => m.territorio == ter);
+                        manzanasDelTer.sort((a, b) => Number(a.numero) - Number(b.numero)).forEach(mza => {
+                            const htmlFecha = mza.fecha_trabajado ? `<span style="color:#666; font-size:10px;"> (el ${mza.fecha_trabajado})</span>` : '';
+                            const htmlNotas = mza.notas ? `<div style="background: #fff9c4; padding: 6px; margin-top: 6px; border-radius: 4px; font-size: 11px; color: #333; border-left: 3px solid #FFC107;">📝 <b>Notas:</b> ${mza.notas}</div>` : '';
+
+                            let colorTextoEstado = 'orange';
+                            if(mza.estado === 'Trabajado') colorTextoEstado = 'green';
+                            if(mza.estado === 'Repasando') colorTextoEstado = '#2196F3';
+
+                            html += `<div class="manzana-item">
+                                        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                                            <div class="info">
+                                                <strong style="color:#4A148C;">T-${mza.territorio}</strong> | Manzana ${mza.numero}<br>
+                                                <small>Estado: <span style="color: ${colorTextoEstado}; font-weight: bold;">${mza.estado}</span>${htmlFecha}</small>
+                                                ${htmlNotas}
+                                            </div>
+                                            <button onclick="renombrarManzana(event, '${mza.id}', '${mza.numero}')" style="background:#eee; border:1px solid #ccc; cursor:pointer; font-size:10px; border-radius:4px; padding:4px 8px;" title="Editar Número de Manzana">✏️</button>
+                                        </div>
+                                        <div class="actions">
+                                            <button class="btn btn-view" onclick="enfocarManzana('${mza.id}')">👁️ VER</button>
+                                            <button class="btn btn-delete" onclick="borrarManzana('${mza.id}')">🗑️ BORRAR</button>
+                                        </div>
+                                    </div>`;
+                        });
+                    } else {
+                        html += `<div style="padding: 10px; font-size: 12px; color: #666; text-align: center;"><em>Presiona "📥 DESCARGAR" para ver el mapa de este territorio.</em></div>`;
+                    }
+                    html += `</div>`;
+                });
+                html += `</div>`;
+                const divGrupo = document.createElement("div"); divGrupo.innerHTML = html; container.appendChild(divGrupo);
+            });
+        }
+
+        function renderizarEstadisticas(stats) {
+            const container = document.getElementById("panel-estadisticas"); 
+            container.innerHTML = "<h4 style='margin: 0 0 20px 0; color: #4A148C; text-align: center; font-size: 16px;'>📊 Progreso por Territorio</h4>";
+            
+            Object.keys(stats).sort((a, b) => Number(a) - Number(b)).forEach(ter => {
+                const { total, trabajadas } = stats[ter]; 
+                const porcentaje = total > 0 ? Math.round((trabajadas / total) * 100) : 0;
+                
+                container.innerHTML += `
+                <div class="stat-item">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                        <span>Territorio ${ter} (${porcentaje}%)</span>
+                        <div style="display: flex; gap: 5px;">
+                            <button class="btn-restart-small btn-repaso" onclick="pasarARepaso('${ter}')" title="Genera informe y pasa manzanas a azul">🔄 REPASO</button>
+                            <button class="btn-restart-small btn-reiniciar" onclick="reiniciarTerritorio('${ter}')" title="Devuelve todo a pendiente y lo saca de descanso">🔄 REINICIAR</button>
+                        </div>
+                    </div>
+                    <div class="barra-fondo">
+                        <div class="barra-progreso" style="width: ${porcentaje}%; background-color: ${porcentaje === 100 ? '#4CAF50' : '#FFC107'};"></div>
+                    </div>
+                </div>`;
+            });
+        }
+
+        function obtenerAnioServicio(fecha) { const mes = fecha.getMonth(); return mes >= 8 ? fecha.getFullYear() + 1 : fecha.getFullYear(); }
+        function obtenerNombreMes(fecha) { const meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]; return meses[fecha.getMonth()]; }
+
+        window.pasarARepaso = async (ter) => {
+            if (!confirm(`⚠️ ALERTA: Estás a punto de pasar el Territorio ${ter} a REPASO.\n\nSe generará un registro en el historial como completado y TODAS las manzanas cambiarán a color azul (Repasando). La asignación se mantendrá. ¿Proceder?`)) return;
+            try {
+                const ahora = new Date();
+                const asigRef = db.collection("asignaciones").doc(`ter-${ter}`);
+                const asigSnap = await asigRef.get();
+                let fechaAsignada = "Sin registro";
+                let publicadoresTrabajando = "N/A";
+                
+                if (asigSnap.exists) {
+                    const asigData = asigSnap.data();
+                    fechaAsignada = asigData.fecha_asignacion || "Sin registro";
+                    publicadoresTrabajando = asigData.publicadores ? asigData.publicadores.join(", ") : (asigData.publicador || "N/A");
+                }
+
+                await db.collection("historial_territorios").add({ 
+                    territorio: ter, mes: obtenerNombreMes(ahora), anio_servicio: obtenerAnioServicio(ahora), 
+                    fecha_corte: ahora.toISOString(), fecha_asignacion: fechaAsignada, publicadores: publicadoresTrabajando,
+                    estado: "Completado (En Repaso)", timestamp: firebase.firestore.FieldValue.serverTimestamp() 
+                });
+                
+                const snapshot = await db.collection("manzanas").where("territorio", "==", ter).get();
+                const batch = db.batch();
+                snapshot.forEach((doc) => { batch.update(doc.ref, { estado: "Repasando" }); });
+                
+                // Aseguramos que el territorio esté activo
+                batch.update(db.collection("territorios").doc(String(ter)), { estado: "activo" });
+                
+                await batch.commit();
+
+                alert(`✅ Territorio ${ter} guardado en el historial y listo para Repaso.`);
+            } catch (error) { alert("❌ Error al procesar."); }
+        };
+
+        window.reiniciarTerritorio = async (ter) => {
+            if (!confirm(`⚠️ ALERTA: Estás a punto de reiniciar el Territorio ${ter} por completo.\n\nSe devolverá automáticamente, se sacará del modo descanso, se guardará en el historial y las manzanas volverán a estar en blanco. ¿Proceder?`)) return;
+            try {
+                const ahora = new Date();
+                const asigRef = db.collection("asignaciones").doc(`ter-${ter}`);
+                const asigSnap = await asigRef.get();
+                let fechaAsignada = "Sin registro";
+                let publicadoresTrabajando = "N/A";
+                
+                if (asigSnap.exists) {
+                    const asigData = asigSnap.data();
+                    fechaAsignada = asigData.fecha_asignacion || "Sin registro";
+                    publicadoresTrabajando = asigData.publicadores ? asigData.publicadores.join(", ") : (asigData.publicador || "N/A");
+                }
+
+                await db.collection("historial_territorios").add({ 
+                    territorio: ter, mes: obtenerNombreMes(ahora), anio_servicio: obtenerAnioServicio(ahora), 
+                    fecha_corte: ahora.toISOString(), fecha_asignacion: fechaAsignada, publicadores: publicadoresTrabajando,
+                    estado: "Completado y Devuelto", timestamp: firebase.firestore.FieldValue.serverTimestamp() 
+                });
+                
+                const snapshot = await db.collection("manzanas").where("territorio", "==", ter).get();
+                const batch = db.batch();
+                snapshot.forEach((doc) => { batch.update(doc.ref, { estado: "Pendiente", fecha_trabajado: firebase.firestore.FieldValue.delete() }); });
+                
+                // --- NUEVO: Lo sacamos del modo descanso y lo dejamos listo para asignar ---
+                batch.update(db.collection("territorios").doc(String(ter)), {
+                    estado: "activo",
+                    trabajadas: 0,
+                    fecha_entregado: firebase.firestore.FieldValue.delete()
+                });
+
+                await batch.commit();
+                await asigRef.delete();
+                
+                alert(`✅ Territorio ${ter} limpiado, completado y devuelto a la lista de libres.`);
+            } catch (error) { alert("❌ Error al procesar."); }
+        };
+
+        window.abrirHistorial = async () => {
+            document.getElementById("modal-historial").style.display = "flex"; const container = document.getElementById("lista-historial"); container.innerHTML = "<p style='text-align:center;'>Cargando registros...</p>";
+            try {
+                const snapshot = await db.collection("historial_territorios").orderBy("timestamp", "desc").get();
+                if(snapshot.empty) return container.innerHTML = "<p style='text-align:center; color:#666;'>No hay territorios terminados aún.</p>";
+                let html = ""; let anioActual = 0;
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    if(data.anio_servicio !== anioActual) { if(anioActual !== 0) html += `</div>`; html += `<div class="anio-grupo"><h4 class="anio-titulo">📅 Año de Servicio ${data.anio_servicio}</h4>`; anioActual = data.anio_servicio; }
+                    const fAsig = data.fecha_asignacion || "Sin registro";
+                    const pubs = data.publicadores ? `<br><span style="color:#2196F3; font-size: 11px;">👤 ${data.publicadores}</span>` : "";
+                    const etiquetaEstado = data.estado ? `<br><span style="color:#FF9800; font-size: 10px; font-weight: bold;">${data.estado}</span>` : "";
+                    
+                    html += `<div class="historial-item">
+                                <div><strong>📍 Territorio ${data.territorio}</strong>${pubs}${etiquetaEstado}</div>
+                                <div style="text-align: right;">
+                                    <span style="color: #666; font-size: 11px; display: block; margin-bottom: 3px;">Asignado: ${fAsig}</span>
+                                    <span style="color: #4A148C; font-size: 11px; font-weight: bold; display: block;">Terminado: ${new Date(data.fecha_corte).toLocaleDateString('es-ES')}</span>
+                                </div>
+                             </div>`;
+                });
+                if(anioActual !== 0) html += `</div>`; container.innerHTML = html;
+            } catch (error) { container.innerHTML = "<p style='color:red;'>Error al cargar.</p>"; }
+        };
+        window.cerrarHistorial = () => { document.getElementById("modal-historial").style.display = "none"; };
+
+        window.imprimirS13 = async () => {
+            try {
+                const asigSnap = await db.collection("asignaciones").get();
+                const histSnap = await db.collection("historial_territorios").orderBy("timestamp", "desc").get();
+                let registros = {};
+                histSnap.forEach(doc => {
+                    const data = doc.data();
+                    if (!data.territorio || data.territorio.toString().length > 10) return;
+                    if (!registros[data.territorio]) registros[data.territorio] = [];
+                    registros[data.territorio].push({ pub: data.publicadores || 'N/A', salida: data.fecha_asignacion || '---', devolucion: new Date(data.fecha_corte).toLocaleDateString('es-ES') });
+                });
+                asigSnap.forEach(doc => {
+                    if (!doc.id.startsWith('ter-')) return;
+                    const data = doc.data(); const terNum = doc.id.replace('ter-', ''); 
+                    if (!registros[terNum]) registros[terNum] = [];
+                    let pubs = "N/A";
+                    if (data.publicadores && data.publicadores.length > 0) pubs = data.publicadores.join(", "); else if (data.publicador) pubs = data.publicador;
+                    registros[terNum].unshift({ pub: pubs, salida: data.fecha_asignacion || '---', devolucion: '<span style="color: #E91E63; font-weight: bold;">EN CURSO</span>' });
+                });
+                if (Object.keys(registros).length === 0) { alert("ℹ️ No hay datos de asignaciones ni historial para imprimir."); return; }
+
+                let htmlContenido = `<html><head><title>Registro S-13</title><style>body { font-family: 'Arial', sans-serif; padding: 30px; color: #333; } h2 { text-align: center; color: #4A148C; text-transform: uppercase; border-bottom: 2px solid #ccc; padding-bottom: 10px; } .fecha-reporte { text-align: right; color: #666; font-size: 12px; margin-bottom: 20px; } table { width: 100%; border-collapse: collapse; margin-bottom: 30px; font-size: 13px; } th, td { border: 1px solid #aaa; padding: 8px; text-align: left; } th { background-color: #f4f4f4; color: #333; font-weight: bold; text-transform: uppercase; font-size: 12px; } .titulo-territorio { background-color: #4A148C; color: white; padding: 6px 10px; font-weight: bold; font-size: 14px; border: 1px solid #4A148C; } .no-page-break { page-break-inside: avoid; }</style></head><body><h2>Registro de Asignación de Territorios (S-13)</h2><div class="fecha-reporte">Reporte generado el: ${new Date().toLocaleDateString('es-ES')}</div>`;
+                Object.keys(registros).sort((a, b) => Number(a) - Number(b)).forEach(ter => {
+                    htmlContenido += `<div class="no-page-break"><div class="titulo-territorio">Territorio Número: ${ter}</div><table><tr><th width="50%">Publicador</th><th width="25%">Fecha de Salida</th><th width="25%">Fecha de Devolución</th></tr>`;
+                    registros[ter].forEach(reg => { htmlContenido += `<tr><td>👤 ${reg.pub}</td><td>📅 ${reg.salida}</td><td>${reg.devolucion}</td></tr>`; });
+                    htmlContenido += `</table></div>`;
+                });
+                htmlContenido += `</body></html>`;
+                const ventanaImpresion = window.open('', '_blank');
+                ventanaImpresion.document.write(htmlContenido);
+                ventanaImpresion.document.close();
+                ventanaImpresion.focus();
+                setTimeout(() => { ventanaImpresion.print(); }, 500);
+            } catch (error) { alert("❌ Ocurrió un error al generar la tarjeta S-13."); }
+        };
+    </script>
+</body>
+</html>
