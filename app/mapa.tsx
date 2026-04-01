@@ -1,5 +1,6 @@
+import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 // Importamos BackHandler aquí
 import { Alert, BackHandler, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, Vibration, View } from 'react-native';
 import { WebView } from 'react-native-webview';
@@ -31,9 +32,23 @@ export default function MapaScreen() {
   const [modalNuevaNotaVisible, setModalNuevaNotaVisible] = useState(false);
   const [nuevaNotaCoords, setNuevaNotaCoords] = useState<{lat: number, lng: number} | null>(null);
   const [textoNuevaNota, setTextoNuevaNota] = useState('');
+
+  // --- ALERTAS DE PELIGRO (visibles para TODOS) ---
+  const [alertasGlobales, setAlertasGlobales] = useState<any[]>([]);
+  const [modalAlertaVisible, setModalAlertaVisible] = useState(false);
+  const [textoNuevaAlerta, setTextoNuevaAlerta] = useState('');
+  const [nuevaAlertaCoords, setNuevaAlertaCoords] = useState<{lat: number, lng: number} | null>(null);
   
   const webViewRef = useRef<WebView>(null);
   const cantidadCapitanesAnterior = useRef(0);
+  // Nuevo: Ref para evitar que el GPS se reinicie al actualizar manzanas
+  const manzanasRef = useRef(manzanas);
+  useEffect(() => { manzanasRef.current = manzanas; }, [manzanas]);
+
+  // Coordenadas del centro de la ciudad
+  // Si la congregación cambia de zona, solo hay que tocar estos dos valores
+  const LAT_CENTRO = 27.4580;
+  const LNG_CENTRO = -109.9530;
 
   // --- CONTROL DEL BOTÓN FÍSICO "ATRÁS" DE ANDROID ---
   useEffect(() => {
@@ -49,14 +64,17 @@ export default function MapaScreen() {
         setModalNuevaNotaVisible(false);
         return true;
       }
-      
+      if (modalAlertaVisible) {
+        setModalAlertaVisible(false);
+        return true;
+      }
       // Si no hay modales abiertos, regresamos a la pantalla anterior
       router.back(); 
       return true; 
     };
     const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
     return () => backHandler.remove();
-  }, [modalVisible, modalNuevaNotaVisible]);
+  }, [modalVisible, modalNuevaNotaVisible, modalAlertaVisible]);
 
   // --- NUEVO: GPS AUTOMÁTICO PARA CAPITANES EN TERRITORIOS ---
   useEffect(() => {
@@ -97,7 +115,8 @@ export default function MapaScreen() {
       });
       setCapitanes(listaC);
 
-      cargarNotasPrivadas();
+      // Nota: las notas privadas las carga su propio useEffect (línea 177)
+      // No las llamamos aquí para evitar la doble carga en cascada
     } catch (error) { console.log(error); }
   };
 
@@ -121,7 +140,7 @@ export default function MapaScreen() {
             webViewRef.current?.injectJavaScript(`if(typeof actualizarUbicacion === 'function') { actualizarUbicacion(${lat}, ${lng}); } true;`);
 
             let idEncontrado = "externo";
-            for (const mza of manzanas) {
+            for (const mza of manzanasRef.current) {
                 if (mza.coordenadas && mza.coordenadas.length > 0) {
                     const latM = mza.coordenadas[0].latitude; const lngM = mza.coordenadas[0].longitude;
                     const dist = Math.abs(latM - lat) + Math.abs(lngM - lng);
@@ -134,7 +153,7 @@ export default function MapaScreen() {
       })();
     } else { setPinesPrivados([]); setTerritorioDetectadoGps(null); }
     return () => { if (watcher) watcher.remove(); };
-  }, [radarActivo, manzanas]);
+  }, [radarActivo]);
 
 // --- NOTAS PRIVADAS EN MAPA (CAPITANES VEN TODO EN EL TERRITORIO) ---
   const cargarNotasPrivadas = async () => {
@@ -200,6 +219,42 @@ export default function MapaScreen() {
     } catch (e) { Alert.alert("Error", "No se pudo borrar la nota."); }
   };
 
+  // --- ALERTAS DE PELIGRO ---
+  const cargarAlertas = async () => {
+    try {
+      if (!territorioSeleccionado || territorioSeleccionado === 'radar') { setAlertasGlobales([]); return; }
+      const q = query(collection(db, 'alertas_mapa'), where('territorio_id', '==', territorioSeleccionado));
+      const snap = await getDocs(q);
+      const lista: any[] = [];
+      snap.forEach(doc => lista.push({ id: doc.id, ...doc.data() }));
+      setAlertasGlobales(lista);
+    } catch (e) { console.log('Error cargando alertas'); }
+  };
+
+  useEffect(() => { cargarAlertas(); }, [territorioSeleccionado]);
+
+  const guardarAlerta = async () => {
+    if (!nuevaAlertaCoords || !textoNuevaAlerta.trim()) return Alert.alert('Error', 'Describe el peligro antes de guardar.');
+    try {
+      await addDoc(collection(db, 'alertas_mapa'), {
+        lat: nuevaAlertaCoords.lat, lng: nuevaAlertaCoords.lng,
+        texto: textoNuevaAlerta.trim(), creador: String(uLog),
+        territorio_id: String(territorioSeleccionado), timestamp: Date.now()
+      });
+      setModalAlertaVisible(false); setTextoNuevaAlerta('');
+      Alert.alert('⚠️ Alerta registrada', 'Todos los publicadores de este territorio pueden verla.');
+      cargarAlertas();
+    } catch (e) { Alert.alert('Error', 'No se pudo guardar la alerta.'); }
+  };
+
+  const borrarAlerta = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'alertas_mapa', id));
+      Alert.alert('✅ Eliminada', 'La alerta ha sido removida del mapa.');
+      cargarAlertas();
+    } catch (e) { Alert.alert('Error', 'No se pudo borrar la alerta.'); }
+  };
+
   // --- BITÁCORA DE MANZANAS ---
   const obtenerArregloNotas = (manzana: any) => {
     if (manzana.arr_notas && Array.isArray(manzana.arr_notas)) return manzana.arr_notas;
@@ -221,10 +276,10 @@ export default function MapaScreen() {
           await updateDoc(doc(db, "manzanas", manzanaEnFoco.id), { arr_notas: nuevasNotas, notas: textoWeb });
           Alert.alert("✅ Guardado", "Nota guardada en la bitácora.");
           setNotaActual(''); setNotaEditandoId(null);
-          
-          const docRef = await getDocs(query(collection(db, "manzanas"), where("__name__", "==", manzanaEnFoco.id)));
-          if(!docRef.empty) setManzanaEnFoco({ id: docRef.docs[0].id, ...docRef.docs[0].data() });
-          cargarDatos();
+          // Actualizamos el estado local directamente — sin releer Firestore
+          const manzanaActualizada = { ...manzanaEnFoco, arr_notas: nuevasNotas, notas: textoWeb };
+          setManzanaEnFoco(manzanaActualizada);
+          setManzanas(prev => prev.map(m => m.id === manzanaEnFoco.id ? manzanaActualizada : m));
       } catch (e) { Alert.alert("Error", "No se guardó la nota."); }
   };
 
@@ -236,10 +291,10 @@ export default function MapaScreen() {
                   const nuevasNotas = notasActuales.filter((n: any) => n.id !== idNota);
                   const textoWeb = nuevasNotas.map((n: any) => `• ${n.texto}`).join('\n');
                   await updateDoc(doc(db, "manzanas", manzanaEnFoco.id), { arr_notas: nuevasNotas, notas: textoWeb });
-                  
-                  const docRef = await getDocs(query(collection(db, "manzanas"), where("__name__", "==", manzanaEnFoco.id)));
-                  if(!docRef.empty) setManzanaEnFoco({ id: docRef.docs[0].id, ...docRef.docs[0].data() });
-                  cargarDatos();
+                  // Actualizamos el estado local directamente — sin releer Firestore
+                  const manzanaActualizada = { ...manzanaEnFoco, arr_notas: nuevasNotas, notas: textoWeb };
+                  setManzanaEnFoco(manzanaActualizada);
+                  setManzanas(prev => prev.map(m => m.id === manzanaEnFoco.id ? manzanaActualizada : m));
               } catch (e) { Alert.alert("Error", "No se pudo borrar."); }
           }}
       ]);
@@ -250,18 +305,25 @@ export default function MapaScreen() {
   // --- CAPITANES Y MARCAR MANZANA (CON OPTIMIZACIÓN INCREMENT) ---
   const guardarPinFirebase = async (lat: number, lng: number) => {
       try {
-          await setDoc(doc(db, "capitanes_activos", String(uLog)), { nombre: uLog, lat: lat, lng: lng, timestamp: Date.now() });
-          Alert.alert("✅ ¡Listo!", "El punto de encuentro está activo.");
-          setEsperandoToqueMapa(false); cargarDatos(); 
+          const nuevoPin = { nombre: String(uLog), lat, lng, timestamp: Date.now() };
+          await setDoc(doc(db, "capitanes_activos", String(uLog)), nuevoPin);
+          // ✅ Actualización local inmediata — el pin aparece al instante en el mapa
+          setCapitanes(prev => {
+              const sinMi = prev.filter((c: any) => c.nombre !== String(uLog));
+              return [...sinMi, nuevoPin];
+          });
+          setEsperandoToqueMapa(false);
           webViewRef.current?.injectJavaScript(`map.flyTo([${lat}, ${lng}], 16); true;`);
+          Alert.alert("✅ ¡Listo!", "El punto de encuentro está activo.");
       } catch (e) { Alert.alert("Error", "No se pudo guardar el punto."); }
   };
 
   const apagarRadar = async () => {
       try {
           await deleteDoc(doc(db, "capitanes_activos", String(uLog)));
+          // ✅ Actualización local inmediata — el menú queda consistente de inmediato
+          setCapitanes(prev => prev.filter((c: any) => c.nombre !== String(uLog)));
           Alert.alert("🛑 Radar apagado", "Tu carrito ha sido retirado del mapa.");
-          cargarDatos();
       } catch (e) { Alert.alert("Error", "No se pudo apagar el radar."); }
   };
 
@@ -297,6 +359,8 @@ export default function MapaScreen() {
 
   // 🚀 OPTIMIZACIÓN APLICADA: Incremento para no gastar lecturas
   const marcarManzana = async (id: string, nuevoEstado: string) => {
+    // Protección: si el modal se cerró antes de confirmar, no hacer nada
+    if (!manzanaEnFoco) return;
     try { 
       const fechaActual = nuevoEstado === 'Trabajado' ? new Date().toLocaleDateString('es-ES') : null;
       const updateData: any = { estado: nuevoEstado };
@@ -308,17 +372,19 @@ export default function MapaScreen() {
       if (estadoAnterior !== 'Trabajado' && nuevoEstado === 'Trabajado') cambioProgreso = 1; 
       else if (estadoAnterior === 'Trabajado' && nuevoEstado !== 'Trabajado') cambioProgreso = -1;
 
-      // 1. Actualiza manzana
-      await updateDoc(doc(db, "manzanas", id), updateData); 
+      // 1. Actualiza manzana (Aseguramos ID como string)
+      await updateDoc(doc(db, "manzanas", String(id)), updateData); 
 
-      // 2. Actualiza territorio (Sin gastar lecturas)
-      if (cambioProgreso !== 0) {
-          await updateDoc(doc(db, "territorios", manzanaEnFoco.territorio), { trabajadas: increment(cambioProgreso) });
+      // 2. Actualiza territorio (Sin gastar lecturas, aseguramos ID como string)
+      if (cambioProgreso !== 0 && manzanaEnFoco.territorio) {
+          await updateDoc(doc(db, "territorios", String(manzanaEnFoco.territorio)), { trabajadas: increment(cambioProgreso) });
       }
 
-      setModalVisible(false); 
-      setManzanaEnFoco({...manzanaEnFoco, estado: nuevoEstado, fecha_trabajado: fechaActual});
-      cargarDatos(); 
+      setModalVisible(false);
+      // Actualizamos el estado local directamente — sin releer Firestore
+      const manzanaActualizada = { ...manzanaEnFoco, estado: nuevoEstado, fecha_trabajado: fechaActual };
+      setManzanaEnFoco(manzanaActualizada);
+      setManzanas(prev => prev.map(m => m.id === id ? { ...m, estado: nuevoEstado, ...(fechaActual ? { fecha_trabajado: fechaActual } : {}) } : m));
     } catch (error) { Alert.alert("Error", "No se actualizó"); }
   };
 
@@ -364,9 +430,19 @@ export default function MapaScreen() {
         `;
     }).join('\n');
 
-    const latCentro = 27.4580; const lngCentro = -109.9530;
-    const centrarJS = territorioSeleccionado === 'radar' ? `map.setView([${latCentro}, ${lngCentro}], 15);` : (coordsArray.length > 0 ? `map.fitBounds([${coordsArray.join(',')}], { padding: [20, 20] });` : `map.setView([${latCentro}, ${lngCentro}], 16);`);
-        
+    // Inyectamos las alertas de peligro (visibles para todos)
+    const alertasJS = alertasGlobales.map((a: any) => {
+        const textoLimpio = a.texto ? a.texto.replace(/['"\n\r]/g, ' ') : '';
+        const creadorLimpio = a.creador ? a.creador.replace(/['"]/g, '') : '';
+        return `
+        var alertaIcon = L.divIcon({ html: '<div style="font-size: 28px; filter: drop-shadow(2px 2px 3px rgba(0,0,0,0.45));">\u26a0\ufe0f</div>', className: 'icono-alerta', iconSize: [32, 32], iconAnchor: [16, 32] });
+        var markerAlerta = L.marker([${a.lat}, ${a.lng}], {icon: alertaIcon}).addTo(map);
+        markerAlerta.on('click', function() { window.ReactNativeWebView.postMessage(JSON.stringify({ tipo: 'alerta_click', id: '${a.id}', texto: '${textoLimpio}', creador: '${creadorLimpio}' })); });
+        `;
+    }).join('\n');
+
+    const centrarJS = territorioSeleccionado === 'radar' ? `map.setView([${LAT_CENTRO}, ${LNG_CENTRO}], 15);` : (coordsArray.length > 0 ? `map.fitBounds([${coordsArray.join(',')}], { padding: [20, 20] });` : `map.setView([${LAT_CENTRO}, ${LNG_CENTRO}], 16);`);
+    
     return `
       <!DOCTYPE html>
       <html>
@@ -381,10 +457,11 @@ export default function MapaScreen() {
         <script>
           var limitesObregon = [[27.3500, -110.0500], [27.5500, -109.8000]];
           var map = L.map('map', { zoomControl: false, maxBounds: limitesObregon, maxBoundsViscosity: 1.0, minZoom: 12 });
-          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+          L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png').addTo(map);
           ${poligonosJS}
           ${capitanesJS}
           ${notasPrivadasJS}
+          ${alertasJS}
           setTimeout(function() { ${centrarJS} }, 400);
           
           var userMarker;
@@ -406,21 +483,45 @@ export default function MapaScreen() {
     `;
   };
 
+  // Memoizamos el HTML del mapa: solo se regenera cuando cambian los datos del mapa,
+  // no en cada render del componente (evita recargas innecesarias del WebView)
+  const htmlMapa = useMemo(() => generarHTMLMapa(), [manzanas, capitanes, pinesPrivados, alertasGlobales, territorioSeleccionado]);
+
   const alTocarManzanaWeb = (event: any) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
-      if (esperandoToqueMapa) { guardarPinFirebase(data.lat, data.lng); return; }
+      if (esperandoToqueMapa) {
+        // Solo procesamos eventos que traen coordenadas válidas (map_click, manzana_click)
+        // nota_click y alerta_click no tienen lat/lng, así que los ignoramos silenciosamente
+        if (typeof data.lat === 'number' && typeof data.lng === 'number') {
+          guardarPinFirebase(data.lat, data.lng);
+        }
+        return;
+      }
 
       if (data.tipo === 'nota_click') {
-          const puedeBorrar = (uLog === data.creador || esCapitanOAdmin);
-          Alert.alert(`📌 Nota de ${data.creador}`, data.texto, puedeBorrar ? [{ text: "Cerrar", style: "cancel" }, { text: "🗑️ Borrar Nota", style: "destructive", onPress: () => borrarNotaPrivada(data.id) }] : [{ text: "Cerrar", style: "cancel" }]);
+          const puedeBorrar = uLog === data.creador || esCapitanOAdmin;
+          Alert.alert(`📌 Revisita de ${data.creador}`, data.texto, puedeBorrar ? [{ text: 'Cerrar', style: 'cancel' }, { text: '🗑️ Borrar', style: 'destructive', onPress: () => borrarNotaPrivada(data.id) }] : [{ text: 'Cerrar', style: 'cancel' }]);
           return;
       }
-      
+
+      if (data.tipo === 'alerta_click') {
+          const puedeBorrar = uLog === data.creador || esCapitanOAdmin;
+          Alert.alert('⚠️ Alerta de Peligro', `${data.texto}\n\n─ Reportado por: ${data.creador}`, puedeBorrar ? [{ text: 'Cerrar', style: 'cancel' }, { text: '🗑️ Eliminar Alerta', style: 'destructive', onPress: () => borrarAlerta(data.id) }] : [{ text: 'Cerrar', style: 'cancel' }]);
+          return;
+      }
+
       if (data.tipo === 'map_longpress') {
-          setNuevaNotaCoords({ lat: data.lat, lng: data.lng });
-          setTextoNuevaNota('');
-          setModalNuevaNotaVisible(true);
+          const coords = { lat: data.lat, lng: data.lng };
+          Alert.alert(
+              'Agregar al Mapa',
+              '¿Qué quieres colocar en este punto?',
+              [
+                  { text: 'Cancelar', style: 'cancel' },
+                  { text: '📌 Revisita Privada', onPress: () => { setNuevaNotaCoords(coords); setTextoNuevaNota(''); setModalNuevaNotaVisible(true); } },
+                  { text: '⚠️ Alerta de Peligro', onPress: () => { setNuevaAlertaCoords(coords); setTextoNuevaAlerta(''); setModalAlertaVisible(true); } },
+              ]
+          );
           return;
       }
 
@@ -430,96 +531,210 @@ export default function MapaScreen() {
               setManzanaEnFoco(mza); setNotaActual(''); setNotaEditandoId(null); setModalVisible(true); 
           }
       }
-    } catch (error) { console.log("Error leyendo toque del mapa"); }
+    } catch (error) { console.log('Error leyendo toque del mapa'); }
   };
 
   return (
     <View style={styles.container}>
+      {/* HEADER DEL MAPA */}
       <View style={styles.headerMapa}>
-        <TouchableOpacity onPress={() => router.back()}>
-            <Text style={{ color: 'white', fontSize: 16 }}>⬅ Volver</Text>
+        <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
+          <Ionicons name="arrow-back" size={20} color="white" />
         </TouchableOpacity>
-        <View style={{alignItems: 'center'}}>
-            <Text style={{ color: 'white', fontSize: 18, fontWeight: 'bold' }}>{territorioSeleccionado === 'radar' ? "Radar" : `Territorio ${territorioSeleccionado}`}</Text>
-            {radarActivo && territorioSeleccionado === 'radar' && (<Text style={{color: '#FFC107', fontSize: 10, fontWeight: 'bold'}}>📍 ZONA: {territorioDetectadoGps || 'Buscando...'}</Text>)}
+
+        <View style={{ alignItems: 'center', flex: 1 }}>
+          <Text style={{ color: 'white', fontSize: 17, fontWeight: 'bold' }}>
+            {territorioSeleccionado === 'radar' ? '📡 Radar' : `Territorio ${territorioSeleccionado}`}
+          </Text>
+          {radarActivo && territorioSeleccionado === 'radar' && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
+              <Ionicons name="location" size={10} color="#FFC107" />
+              <Text style={{ color: '#FFC107', fontSize: 10, fontWeight: 'bold' }}>
+                {territorioDetectadoGps || 'Buscando...'}
+              </Text>
+            </View>
+          )}
         </View>
-        <View style={{flexDirection: 'row', alignItems: 'center', gap: 15}}>
-            {territorioSeleccionado === 'radar' && (
-                <TouchableOpacity onPress={() => setRadarActivo(!radarActivo)} style={{backgroundColor: radarActivo ? '#4CAF50' : '#ff4444', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: 'white'}}>
-                    <Text style={{color: 'white', fontSize: 12, fontWeight: 'bold'}}>{radarActivo ? 'GPS: ON' : 'GPS: OFF'}</Text>
-                </TouchableOpacity>
-            )}
-            <TouchableOpacity onPress={centrarEnCapitan}><Text style={{ fontSize: 22 }}>🧭</Text></TouchableOpacity>
+
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          {territorioSeleccionado === 'radar' && (
+            <TouchableOpacity
+              onPress={() => setRadarActivo(!radarActivo)}
+              style={[styles.gpsPill, { backgroundColor: radarActivo ? '#4CAF50' : '#E53935' }]}
+            >
+              <Ionicons name={radarActivo ? 'radio' : 'radio-outline'} size={14} color="white" />
+              <Text style={{ color: 'white', fontSize: 12, fontWeight: 'bold' }}>
+                {radarActivo ? 'ON' : 'OFF'}
+              </Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity onPress={centrarEnCapitan} style={styles.headerBtn}>
+            <Ionicons name="navigate-outline" size={20} color="white" />
+          </TouchableOpacity>
         </View>
       </View>
 
+      {/* BANNER: esperando toque en el mapa */}
       {esperandoToqueMapa && (
-          <View style={{ position: 'absolute', top: 85, left: 15, right: 15, backgroundColor: '#FF9800', padding: 15, borderRadius: 10, elevation: 5, zIndex: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ color: 'white', fontWeight: 'bold', flex: 1 }}>🗺️ Toca un punto para estacionar el carrito.</Text>
-              <TouchableOpacity onPress={() => setEsperandoToqueMapa(false)} style={{ backgroundColor: 'white', paddingHorizontal: 10, paddingVertical: 8, borderRadius: 5, marginLeft: 10 }}><Text style={{ color: '#FF9800', fontWeight: 'bold' }}>Cancelar</Text></TouchableOpacity>
-          </View>
+        <View style={styles.toastBanner}>
+          <Ionicons name="car-outline" size={20} color="white" style={{ marginRight: 8 }} />
+          <Text style={{ color: 'white', fontWeight: 'bold', flex: 1, fontSize: 13 }}>Toca un punto del mapa para estacionar el carrito</Text>
+          <TouchableOpacity onPress={() => setEsperandoToqueMapa(false)} style={styles.toastCancelBtn}>
+            <Ionicons name="close" size={16} color="#FF9800" />
+          </TouchableOpacity>
+        </View>
       )}
-      
-      <WebView ref={webViewRef} source={{ html: generarHTMLMapa() }} style={{ flex: 1 }} onMessage={alTocarManzanaWeb} javaScriptEnabled={true} geolocationEnabled={true} />
+
+      <WebView ref={webViewRef} source={{ html: htmlMapa }} style={{ flex: 1 }} onMessage={alTocarManzanaWeb} javaScriptEnabled={true} geolocationEnabled={true} />
 
       {esCapitanOAdmin && (
-        <TouchableOpacity style={styles.fabCapitan} onPress={anclarPuntoCapitan}><Text style={{fontSize: 26}}>🚗</Text></TouchableOpacity>
+        <TouchableOpacity style={styles.fabCapitan} onPress={anclarPuntoCapitan}>
+          <Text style={{ fontSize: 28 }}>🚗</Text>
+        </TouchableOpacity>
       )}
 
-      {/* MODAL MANZANAS (CON SECCIÓN DE NOTAS RESTAURADA) */}
+      {/* MODAL MANZANAS REDISEÑADO */}
       <Modal visible={modalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'padding'} style={{ width: '100%', maxHeight: '90%' }}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'padding'} style={{ width: '100%', maxHeight: '92%' }}>
             <View style={[styles.modalContent, { flexShrink: 1 }]}>
               {manzanaEnFoco && (
-                <ScrollView keyboardShouldPersistTaps="handled">
-                  <Text style={styles.tT}>Manzana {manzanaEnFoco.numero}</Text>
-                  <Text style={{ marginBottom: 15, color: '#666' }}>Estado actual: <Text style={{fontWeight:'bold', color: manzanaEnFoco.estado === 'Trabajado' ? 'green' : manzanaEnFoco.estado === 'Repasando' ? '#2196F3' : 'orange'}}>{manzanaEnFoco.estado}</Text></Text>
-                  
-                  {/* AQUÍ ESTÁ LA SECCIÓN DE NOTAS DE VUELTA */}
-                  <Text style={{ fontWeight: 'bold', color: '#333', marginBottom: 5 }}>Bitácora de la Manzana:</Text>
-                  <View style={{maxHeight: 180, marginBottom: 15}}>
-                      <ScrollView nestedScrollEnabled>
-                          {notasActuales.length === 0 && <Text style={{color: '#999', fontStyle: 'italic', fontSize: 13, marginVertical: 10}}>No hay notas registradas aún.</Text>}
-                          {notasActuales.map((n: any) => (
-                              <View key={n.id} style={{backgroundColor: '#f9f9f9', padding: 10, borderRadius: 8, marginBottom: 8, borderLeftWidth: 4, borderLeftColor: '#FFC107'}}>
-                                  <Text style={{fontSize: 14, color: '#333'}}>{n.texto}</Text>
-                                  <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8}}>
-                                      <Text style={{fontSize: 11, color: '#888'}}>👤 {n.autor} • {n.fecha}</Text>
-                                      {(esCapitanOAdmin || uLog === n.autor) && (
-                                          <View style={{flexDirection: 'row', gap: 15}}>
-                                              <TouchableOpacity onPress={() => editarNotaHistorial(n)}><Text style={{fontSize: 16}}>✏️</Text></TouchableOpacity>
-                                              <TouchableOpacity onPress={() => borrarNotaHistorial(n.id)}><Text style={{fontSize: 16}}>🗑️</Text></TouchableOpacity>
-                                          </View>
-                                      )}
-                                  </View>
+                <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+
+                  {/* Drag handle */}
+                  <View style={styles.modalHandle} />
+
+                  {/* CABECERA: Territorio + Manzana + Badge de estado */}
+                  <View style={styles.modalHeader}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.modalSuperTitle}>Territorio {manzanaEnFoco.territorio} — {manzanaEnFoco.dia || 'General'}</Text>
+                      <Text style={styles.modalMainTitle}>Manzana {manzanaEnFoco.numero}</Text>
+                    </View>
+                    <View style={[
+                      styles.estadoBadge,
+                      manzanaEnFoco.estado === 'Trabajado' ? { backgroundColor: '#E8F5E9', borderColor: '#4CAF50' }
+                      : manzanaEnFoco.estado === 'Repasando' ? { backgroundColor: '#E3F2FD', borderColor: '#2196F3' }
+                      : { backgroundColor: '#FFF3E0', borderColor: '#FF9800' }
+                    ]}>
+                      <Text style={[
+                        styles.estadoBadgeTxt,
+                        manzanaEnFoco.estado === 'Trabajado' ? { color: '#2E7D32' }
+                        : manzanaEnFoco.estado === 'Repasando' ? { color: '#1565C0' }
+                        : { color: '#E65100' }
+                      ]}>
+                        {manzanaEnFoco.estado === 'Trabajado' ? '✅' : manzanaEnFoco.estado === 'Repasando' ? '🔄' : '⏳'} {manzanaEnFoco.estado}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {manzanaEnFoco.fecha_trabajado && (
+                    <Text style={styles.fechaTrabajado}>
+                      <Ionicons name="calendar-outline" size={12} color="#aaa" /> Última vez: {manzanaEnFoco.fecha_trabajado}
+                    </Text>
+                  )}
+
+                  {/* SELECTOR DE ESTADO (Segmented control) */}
+                  <View style={styles.selectorEstado}>
+                    {([
+                      { label: 'Pendiente', color: '#FF9800', bg: '#FFF3E0', icon: 'time-outline' },
+                      { label: 'Repasando', color: '#2196F3', bg: '#E3F2FD', icon: 'refresh-outline' },
+                      { label: 'Trabajado', color: '#4CAF50', bg: '#E8F5E9', icon: 'checkmark-circle-outline' },
+                    ] as const).map((opcion) => {
+                      const seleccionado = manzanaEnFoco.estado === opcion.label;
+                      return (
+                        <TouchableOpacity
+                          key={opcion.label}
+                          style={[styles.pillEstado, seleccionado
+                            ? { backgroundColor: opcion.color, borderColor: opcion.color }
+                            : { backgroundColor: 'white', borderColor: '#E0E0E0' }
+                          ]}
+                          onPress={() => marcarManzana(manzanaEnFoco.id, opcion.label)}
+                          activeOpacity={0.8}
+                        >
+                          <Ionicons name={opcion.icon} size={15} color={seleccionado ? 'white' : opcion.color} />
+                          <Text style={[styles.pillTxt, { color: seleccionado ? 'white' : '#555' }]}>
+                            {opcion.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+
+                  {/* DIVIDER */}
+                  <View style={styles.divider} />
+
+                  {/* BITÁCORA */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                    <Ionicons name="book-outline" size={15} color="#4A148C" />
+                    <Text style={styles.sectionTitle}>Bitácora</Text>
+                  </View>
+
+                  <View style={{ maxHeight: 180, marginBottom: 12 }}>
+                    <ScrollView nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                      {notasActuales.length === 0 && (
+                        <View style={styles.emptyNota}>
+                          <Ionicons name="document-text-outline" size={22} color="#ddd" />
+                          <Text style={styles.emptyNotaTxt}>Sin notas en la bitácora</Text>
+                        </View>
+                      )}
+                      {notasActuales.map((n: any) => (
+                        <View key={n.id} style={styles.notaCard}>
+                          <Text style={styles.notaTxt}>{n.texto}</Text>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
+                            <Text style={styles.notaMeta}>
+                              <Ionicons name="person-outline" size={11} color="#aaa" /> {n.autor} · {n.fecha}
+                            </Text>
+                            {(esCapitanOAdmin || uLog === n.autor) && (
+                              <View style={{ flexDirection: 'row', gap: 14 }}>
+                                <TouchableOpacity onPress={() => editarNotaHistorial(n)}>
+                                  <Ionicons name="pencil-outline" size={17} color="#2196F3" />
+                                </TouchableOpacity>
+                                <TouchableOpacity onPress={() => borrarNotaHistorial(n.id)}>
+                                  <Ionicons name="trash-outline" size={17} color="#F44336" />
+                                </TouchableOpacity>
                               </View>
-                          ))}
-                      </ScrollView>
+                            )}
+                          </View>
+                        </View>
+                      ))}
+                    </ScrollView>
                   </View>
 
-                  <View style={{marginBottom: 20}}>
-                      <TextInput 
-                          style={[styles.inputLogin, { height: 70, textAlignVertical: 'top', marginBottom: 10, color: '#000', padding: 10 }]} 
-                          multiline={true} placeholder="Escribe una nueva nota aquí..." placeholderTextColor="#999" 
-                          value={notaActual} onChangeText={setNotaActual}
-                      />
-                      <View style={{flexDirection: 'row', gap: 10}}>
-                          <TouchableOpacity style={[styles.btnLogin, { backgroundColor: notaEditandoId ? '#FF9800' : '#2196F3', flex: 1, padding: 12 }]} onPress={guardarNotaHistorial}>
-                              <Text style={{ color: 'white', fontWeight: 'bold', textAlign: 'center' }}>{notaEditandoId ? '💾 ACTUALIZAR' : '➕ AGREGAR NOTA'}</Text>
-                          </TouchableOpacity>
-                          {notaEditandoId && (
-                              <TouchableOpacity style={[styles.btnLogin, { backgroundColor: '#eee', padding: 12, width: 50, alignItems: 'center' }]} onPress={() => {setNotaEditandoId(null); setNotaActual('');}}>
-                                  <Text style={{ color: '#333', fontWeight: 'bold' }}>✖</Text>
-                              </TouchableOpacity>
-                          )}
-                      </View>
+                  {/* INPUT NUEVA NOTA */}
+                  <TextInput
+                    style={styles.notaInput}
+                    multiline
+                    placeholder="Escribe una nota aquí..."
+                    placeholderTextColor="#bbb"
+                    value={notaActual}
+                    onChangeText={setNotaActual}
+                  />
+                  <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+                    <TouchableOpacity
+                      style={[styles.btnNota, { backgroundColor: notaEditandoId ? '#FF9800' : '#4A148C', flex: 1 }]}
+                      onPress={guardarNotaHistorial}
+                    >
+                      <Ionicons name={notaEditandoId ? 'save-outline' : 'add-circle-outline'} size={16} color="white" />
+                      <Text style={styles.btnNotaTxt}>{notaEditandoId ? 'Actualizar' : 'Agregar Nota'}</Text>
+                    </TouchableOpacity>
+                    {notaEditandoId && (
+                      <TouchableOpacity
+                        style={[styles.btnNota, { backgroundColor: '#F5F5F5', paddingHorizontal: 14 }]}
+                        onPress={() => { setNotaEditandoId(null); setNotaActual(''); }}
+                      >
+                        <Ionicons name="close-outline" size={18} color="#666" />
+                      </TouchableOpacity>
+                    )}
                   </View>
 
-                  <TouchableOpacity style={[styles.btnLogin, { backgroundColor: '#4CAF50', marginBottom: 10 }]} onPress={() => marcarManzana(manzanaEnFoco.id, 'Trabajado')}><Text style={{ color: 'white', fontWeight: 'bold', textAlign: 'center', fontSize: 16 }}>✅ Marcar TRABAJADA</Text></TouchableOpacity>
-                  <TouchableOpacity style={[styles.btnLogin, { backgroundColor: '#2196F3', marginBottom: 10 }]} onPress={() => marcarManzana(manzanaEnFoco.id, 'Repasando')}><Text style={{ color: 'white', fontWeight: 'bold', textAlign: 'center', fontSize: 16 }}>🔄 Marcar REPASANDO</Text></TouchableOpacity>
-                  <TouchableOpacity style={[styles.btnLogin, { backgroundColor: '#FF9800', marginBottom: 20 }]} onPress={() => marcarManzana(manzanaEnFoco.id, 'Pendiente')}><Text style={{ color: 'white', fontWeight: 'bold', textAlign: 'center', fontSize: 16 }}>⏳ Marcar PENDIENTE</Text></TouchableOpacity>
-                  <TouchableOpacity onPress={() => {setModalVisible(false); setNotaEditandoId(null); setNotaActual('');}}><Text style={{ textAlign: 'center', color: '#666', fontSize: 16, marginTop: 10, marginBottom: 20 }}>Cerrar Modal</Text></TouchableOpacity>
+                  {/* Botón cerrar */}
+                  <TouchableOpacity
+                    style={styles.btnCerrar}
+                    onPress={() => { setModalVisible(false); setNotaEditandoId(null); setNotaActual(''); }}
+                  >
+                    <Text style={styles.btnCerrarTxt}>Cerrar</Text>
+                  </TouchableOpacity>
+
                 </ScrollView>
               )}
             </View>
@@ -527,24 +742,95 @@ export default function MapaScreen() {
         </View>
       </Modal> 
 
-      {/* MODAL PARA AGREGAR NOTA EN EL MAPA (PIN PRIVADO) */}
+      {/* MODAL DE PIN PRIVADO (REVISITA) */}
       <Modal visible={modalNuevaNotaVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'padding'} style={{ width: '100%' }}>
             <View style={styles.modalContent}>
-               <Text style={styles.tT}>📌 Agregar Nota al Mapa</Text>
-               <Text style={{ marginBottom: 15, color: '#666' }}>Escribe tu nota personal para este punto del mapa.</Text>
-               <TextInput 
-                  style={[styles.inputLogin, { height: 100, textAlignVertical: 'top', color: '#000' }]} 
-                  multiline={true} placeholder="Ej. Sra. María pidió volver el martes..." placeholderTextColor="#999" 
-                  value={textoNuevaNota} onChangeText={setTextoNuevaNota} autoFocus
-               />
-               <TouchableOpacity style={[styles.btnLogin, { backgroundColor: '#4A148C', marginTop: 10 }]} onPress={guardarNotaPrivada}>
-                  <Text style={{ color: 'white', fontWeight: 'bold', textAlign: 'center' }}>GUARDAR NOTA</Text>
-               </TouchableOpacity>
-               <TouchableOpacity style={[styles.btnLogin, { backgroundColor: '#eee', marginTop: 10 }]} onPress={() => setModalNuevaNotaVisible(false)}>
-                  <Text style={{ textAlign: 'center', color: '#333', fontWeight: 'bold' }}>Cancelar</Text>
-               </TouchableOpacity>
+              <View style={styles.modalHandle} />
+
+              {/* Cabecera */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                <View style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: '#EDE7F6', justifyContent: 'center', alignItems: 'center' }}>
+                  <Ionicons name="location" size={20} color="#4A148C" />
+                </View>
+                <View>
+                  <Text style={styles.modalMainTitle}>Nueva Revisita</Text>
+                  <Text style={styles.modalSuperTitle}>Nota privada en el mapa</Text>
+                </View>
+              </View>
+
+              <View style={styles.divider} />
+
+              <TextInput
+                style={[styles.notaInput, { minHeight: 100 }]}
+                multiline
+                placeholder="Ej. Sra. María pidió volver el martes..."
+                placeholderTextColor="#bbb"
+                value={textoNuevaNota}
+                onChangeText={setTextoNuevaNota}
+                autoFocus
+              />
+
+              <TouchableOpacity
+                style={[styles.btnNota, { backgroundColor: '#4A148C', marginBottom: 10 }]}
+                onPress={guardarNotaPrivada}
+              >
+                <Ionicons name="bookmark-outline" size={16} color="white" />
+                <Text style={styles.btnNotaTxt}>Guardar Revisita</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.btnCerrar}
+                onPress={() => setModalNuevaNotaVisible(false)}
+              >
+                <Text style={styles.btnCerrarTxt}>Cancelar</Text>
+              </TouchableOpacity>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
+
+      {/* MODAL: ALERTA DE PELIGRO */}
+      <Modal visible={modalAlertaVisible} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'padding'} style={{ width: '100%' }}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHandle} />
+
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#FFEBEE', justifyContent: 'center', alignItems: 'center' }}>
+                  <Ionicons name="warning" size={22} color="#D32F2F" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.modalMainTitle}>Alerta de Peligro</Text>
+                  <Text style={styles.modalSuperTitle}>⚠️ Visible para TODOS los publicadores</Text>
+                </View>
+              </View>
+
+              <View style={styles.divider} />
+
+              <TextInput
+                style={[styles.notaInput, { minHeight: 100, borderWidth: 1.5, borderColor: '#FFCDD2' }]}
+                multiline
+                placeholder="Describe el peligro. Ej: Perro suelto, persona conflictiva, zona insegura..."
+                placeholderTextColor="#bbb"
+                value={textoNuevaAlerta}
+                onChangeText={setTextoNuevaAlerta}
+                autoFocus
+              />
+
+              <TouchableOpacity
+                style={[styles.btnNota, { backgroundColor: '#D32F2F', marginBottom: 10 }]}
+                onPress={guardarAlerta}
+              >
+                <Ionicons name="warning-outline" size={16} color="white" />
+                <Text style={styles.btnNotaTxt}>Registrar Alerta</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.btnCerrar} onPress={() => setModalAlertaVisible(false)}>
+                <Text style={styles.btnCerrarTxt}>Cancelar</Text>
+              </TouchableOpacity>
             </View>
           </KeyboardAvoidingView>
         </View>
@@ -555,12 +841,50 @@ export default function MapaScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f4f4f4' },
-  headerMapa: { backgroundColor: '#4A148C', padding: 20, paddingTop: 50, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  tT: { fontSize: 18, fontWeight: 'bold', color: '#333' },
-  btnLogin: { padding: 15, borderRadius: 8 },
-  inputLogin: { backgroundColor: '#f0f0f0', padding: 15, borderRadius: 8, marginBottom: 15, fontSize: 16 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: 'white', padding: 25, paddingBottom: 50, borderTopLeftRadius: 20, borderTopRightRadius: 20, minHeight: 300 },
-  fabCapitan: { position: 'absolute', bottom: 30, right: 20, backgroundColor: '#FFC107', width: 65, height: 65, borderRadius: 35, justifyContent: 'center', alignItems: 'center', elevation: 8, borderWidth: 2, borderColor: 'white', zIndex: 1000 }
+  container:        { flex: 1, backgroundColor: '#f4f4f4' },
+  headerMapa:       { backgroundColor: '#4A148C', paddingTop: 52, paddingHorizontal: 16, paddingBottom: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', elevation: 4 },
+  headerBtn:        { width: 38, height: 38, borderRadius: 19, backgroundColor: 'rgba(255,255,255,0.15)', justifyContent: 'center', alignItems: 'center' },
+  gpsPill:          { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20 },
+  toastBanner:      { position: 'absolute', top: 92, left: 14, right: 14, backgroundColor: '#FF9800', padding: 14, borderRadius: 14, elevation: 6, zIndex: 10, flexDirection: 'row', alignItems: 'center', shadowColor: '#FF9800', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 },
+  toastCancelBtn:   { width: 32, height: 32, borderRadius: 16, backgroundColor: 'white', justifyContent: 'center', alignItems: 'center', marginLeft: 10 },
+  fabCapitan:       { position: 'absolute', bottom: 30, right: 20, backgroundColor: 'white', width: 62, height: 62, borderRadius: 31, justifyContent: 'center', alignItems: 'center', elevation: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, borderWidth: 2, borderColor: '#FFC107' },
+
+  // Modal base
+  modalOverlay:     { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  modalContent:     { backgroundColor: 'white', padding: 20, paddingBottom: 30, borderTopLeftRadius: 24, borderTopRightRadius: 24 },
+  modalHandle:      { width: 40, height: 4, backgroundColor: '#E0E0E0', borderRadius: 2, alignSelf: 'center', marginBottom: 16 },
+
+  // Modal header
+  modalHeader:      { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 4 },
+  modalSuperTitle:  { fontSize: 12, color: '#aaa', fontWeight: '500', marginBottom: 2 },
+  modalMainTitle:   { fontSize: 22, fontWeight: 'bold', color: '#222' },
+  estadoBadge:      { borderWidth: 1.5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
+  estadoBadgeTxt:   { fontSize: 12, fontWeight: 'bold' },
+  fechaTrabajado:   { fontSize: 11, color: '#bbb', marginBottom: 16 },
+
+  // Selector de estado
+  selectorEstado:   { flexDirection: 'row', gap: 8, marginBottom: 20 },
+  pillEstado:       { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 10, borderRadius: 12, borderWidth: 1.5 },
+  pillTxt:          { fontSize: 12, fontWeight: 'bold' },
+
+  // Divider
+  divider:          { height: 1, backgroundColor: '#F0F0F0', marginBottom: 16 },
+  sectionTitle:     { fontSize: 14, fontWeight: 'bold', color: '#333' },
+
+  // Notas
+  emptyNota:        { alignItems: 'center', paddingVertical: 16, gap: 6 },
+  emptyNotaTxt:     { color: '#ccc', fontSize: 13 },
+  notaCard:         { backgroundColor: '#FAFAFA', padding: 12, borderRadius: 10, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: '#FFC107' },
+  notaTxt:          { fontSize: 13, color: '#333', lineHeight: 19 },
+  notaMeta:         { fontSize: 11, color: '#bbb' },
+  notaInput:        { backgroundColor: '#F5F5F5', borderRadius: 12, padding: 12, fontSize: 14, color: '#333', minHeight: 70, textAlignVertical: 'top', marginBottom: 10 },
+  btnNota:          { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, borderRadius: 12 },
+  btnNotaTxt:       { color: 'white', fontWeight: 'bold', fontSize: 14 },
+  btnCerrar:        { backgroundColor: '#F5F5F5', paddingVertical: 14, borderRadius: 12, alignItems: 'center', marginTop: 4, marginBottom: 6 },
+  btnCerrarTxt:     { color: '#666', fontWeight: 'bold', fontSize: 15 },
+
+  // Legacy (usados en inputs genéricos)
+  tT:           { fontSize: 18, fontWeight: 'bold', color: '#333' },
+  btnLogin:     { padding: 15, borderRadius: 8 },
+  inputLogin:   { backgroundColor: '#f0f0f0', padding: 15, borderRadius: 8, marginBottom: 15, fontSize: 16 },
 });
