@@ -66,6 +66,62 @@ function BarraProgreso({ trabajadas, total }: { trabajadas: number; total: numbe
   );
 }
 
+// --- SKELETON CARD ---
+function SkeletonCard() {
+  const anim = useRef(new Animated.Value(0.4)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 1, duration: 750, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 0.4, duration: 750, useNativeDriver: true }),
+      ])
+    ).start();
+  }, []);
+  return (
+    <Animated.View style={[styles.cardT, { opacity: anim }]}>
+      <View style={{ flex: 1, gap: 10 }}>
+        <View style={{ height: 18, width: '55%', backgroundColor: '#E0E0E0', borderRadius: 6 }} />
+        <View style={{ height: 10, width: '35%', backgroundColor: '#EEEEEE', borderRadius: 4 }} />
+        <View style={{ height: 6, backgroundColor: '#EEEEEE', borderRadius: 3, marginTop: 4 }} />
+      </View>
+      <View style={{ height: 36, width: 80, backgroundColor: '#E0E0E0', borderRadius: 8 }} />
+    </Animated.View>
+  );
+}
+
+// --- BADGE DE ESTADO ---
+function EstadoBadge({ estado }: { estado: string }) {
+  const colores: Record<string, { bg: string; text: string }> = {
+    'Trabajado':   { bg: '#E8F5E9', text: '#2E7D32' },
+    'Repasando':   { bg: '#E3F2FD', text: '#1565C0' },
+    'descansando': { bg: '#FFF3E0', text: '#E65100' },
+    'Pendiente':   { bg: '#F3E5F5', text: '#6A1B9A' },
+  };
+  const c = colores[estado] || { bg: '#F5F5F5', text: '#666' };
+  return (
+    <View style={{ backgroundColor: c.bg, paddingHorizontal: 10, paddingVertical: 3, borderRadius: 20, alignSelf: 'flex-start', marginTop: 6 }}>
+      <Text style={{ color: c.text, fontSize: 11, fontWeight: 'bold' }}>{estado || 'Activo'}</Text>
+    </View>
+  );
+}
+
+// --- BARRA DE PROGRESO ---
+function BarraProgreso({ trabajadas, total }: { trabajadas: number; total: number }) {
+  const pct = total > 0 ? Math.min(100, Math.round((trabajadas / total) * 100)) : 0;
+  const color = pct === 100 ? '#4CAF50' : pct >= 60 ? '#2196F3' : '#4A148C';
+  return (
+    <View style={{ marginTop: 10 }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+        <Text style={{ fontSize: 11, color: '#888' }}>{trabajadas} / {total} manzanas</Text>
+        <Text style={{ fontSize: 11, fontWeight: 'bold', color }}>{pct}%</Text>
+      </View>
+      <View style={styles.barFondo}>
+        <View style={[styles.barRelleno, { width: `${pct}%` as any, backgroundColor: color }]} />
+      </View>
+    </View>
+  );
+}
+
 export default function ListaScreen() {
   const router = useRouter();
   const { usuario, rol, logout } = useAuth();
@@ -92,7 +148,7 @@ export default function ListaScreen() {
     try {
       const snapTer = await getDocs(collection(db, 'territorios'));
       const listaT: any[] = [];
-      snapTer.forEach(doc => listaT.push(doc.data()));
+      snapTer.forEach(doc => listaT.push({ id: doc.id, ...doc.data() }));
       setTerritorios(listaT.sort((a: any, b: any) => Number(a.id) - Number(b.id)));
 
       const snapAsig = await getDocs(collection(db, 'asignaciones'));
@@ -123,7 +179,11 @@ export default function ListaScreen() {
   const abrirLibretaRevisitas = async () => {
     setModalRevisitasVisible(true);
     try {
+<<<<<<< HEAD
       const q = query(collection(db, 'notas_privadas'), where('creador', '==', String(uLogActual)));
+=======
+      const q = query(collection(db, 'notas_privadas'), where('creador', '==', String(uLog)));
+>>>>>>> d234238edc258e62d77849c87cb78e4a3f8ac6e2
       const snap = await getDocs(q);
       const pines: any[] = [];
       snap.forEach(doc => pines.push({ id: doc.id, ...doc.data() }));
@@ -138,7 +198,11 @@ export default function ListaScreen() {
       const pinSecreto = seguridadRef.data().pin_maestro;
       if (pinIngresado === pinSecreto) {
         setModalPinVisible(false); setPinIngresado('');
+<<<<<<< HEAD
         router.push({ pathname: '/admin', params: { uLog: uLogActual, rol: rolActual } });
+=======
+        router.push({ pathname: '/admin', params: { uLog, rol } });
+>>>>>>> d234238edc258e62d77849c87cb78e4a3f8ac6e2
       } else {
         Alert.alert('Error', 'PIN Incorrecto'); setPinIngresado('');
       }
@@ -156,7 +220,11 @@ export default function ListaScreen() {
             const refAsig = doc(db, 'asignaciones', `ter-${idTer}`);
             const asigSnap = await getDoc(refAsig);
             let fechaAsignada = 'Sin registro';
+<<<<<<< HEAD
             let publicadoresTrabajando = String(uLogActual);
+=======
+            let publicadoresTrabajando = String(uLog);
+>>>>>>> d234238edc258e62d77849c87cb78e4a3f8ac6e2
             if (asigSnap.exists()) {
               const asigData = asigSnap.data();
               fechaAsignada = asigData.fecha_asignacion || 'Sin registro';
@@ -185,7 +253,11 @@ export default function ListaScreen() {
 
   const misTerritorios = territorios.filter((t: any) => {
     const pubs = asignaciones[`ter-${t.id}`] || [];
+<<<<<<< HEAD
     return pubs.includes(String(uLogActual));
+=======
+    return pubs.includes(String(uLog));
+>>>>>>> d234238edc258e62d77849c87cb78e4a3f8ac6e2
   });
 
   return (
@@ -196,7 +268,11 @@ export default function ListaScreen() {
           <View style={{ flex: 1, paddingRight: 10 }}>
             <Text style={styles.tH} numberOfLines={1} adjustsFontSizeToFit>Mis Asignaciones</Text>
             <Text style={styles.subH} numberOfLines={1}>
+<<<<<<< HEAD
               <Ionicons name="person-circle-outline" size={14} color="#E1BEE7" /> {uLogActual}{esCapitanOAdmin ? '  ·  Capitán' : ''}
+=======
+              <Ionicons name="person-circle-outline" size={14} color="#E1BEE7" /> {uLog}{esCapitanOAdmin ? '  ·  Capitán' : ''}
+>>>>>>> d234238edc258e62d77849c87cb78e4a3f8ac6e2
             </Text>
           </View>
           <TouchableOpacity onPress={() => router.replace('/')} style={styles.btnSalir}>
@@ -206,7 +282,11 @@ export default function ListaScreen() {
 
         <View style={{ marginTop: 20, flexDirection: 'row', gap: 10 }}>
           <TouchableOpacity
+<<<<<<< HEAD
             onPress={() => router.push({ pathname: '/mapa', params: { territorioSeleccionado: 'radar', uLog: uLogActual, rol: rolActual } })}
+=======
+            onPress={() => router.push({ pathname: '/mapa', params: { territorioSeleccionado: 'radar', uLog, rol } })}
+>>>>>>> d234238edc258e62d77849c87cb78e4a3f8ac6e2
             style={[styles.btnHeader, { backgroundColor: '#2196F3', flex: 1 }]}
           >
             <Ionicons name="radio-outline" size={16} color="white" />
@@ -260,7 +340,11 @@ export default function ListaScreen() {
               </View>
 
               <View style={{ alignItems: 'flex-end', gap: 8 }}>
+<<<<<<< HEAD
                 <TouchableOpacity style={styles.btnIr} onPress={() => router.push({ pathname: '/mapa', params: { territorioSeleccionado: t.id, uLog: uLogActual, rol: rolActual } })}>                
+=======
+                <TouchableOpacity style={styles.btnIr} onPress={() => router.push({ pathname: '/mapa', params: { territorioSeleccionado: t.id, uLog, rol } })}>
+>>>>>>> d234238edc258e62d77849c87cb78e4a3f8ac6e2
                   <Ionicons name="map-outline" size={14} color="white" />
                   <Text style={styles.btnIrTxt}>VER</Text>
                 </TouchableOpacity>
@@ -311,7 +395,11 @@ export default function ListaScreen() {
                 ? <Text style={{ textAlign: 'center', marginTop: 20, color: '#999', fontStyle: 'italic' }}>No tienes pines guardados aún.</Text>
                 : misPines.map((pin: any, i: number) => (
                   <TouchableOpacity key={i} style={{ backgroundColor: '#fff9c4', padding: 15, borderRadius: 8, marginBottom: 10, borderLeftWidth: 4, borderLeftColor: '#FFC107', elevation: 1 }}
+<<<<<<< HEAD
                     onPress={() => { setModalRevisitasVisible(false); router.push({ pathname: '/mapa', params: { territorioSeleccionado: pin.territorio_id, uLog: uLogActual, rol: rolActual } }); }}>
+=======
+                    onPress={() => { setModalRevisitasVisible(false); router.push({ pathname: '/mapa', params: { territorioSeleccionado: pin.territorio_id, uLog, rol } }); }}>
+>>>>>>> d234238edc258e62d77849c87cb78e4a3f8ac6e2
                     <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#4A148C', marginBottom: 5 }}>📍 Territorio {pin.territorio_id}</Text>
                     <Text style={{ fontSize: 15, color: '#333' }}>"{pin.texto}"</Text>
                     <Text style={{ fontSize: 11, color: '#888', marginTop: 8, textAlign: 'right' }}>Toca para ver en el mapa 🗺️</Text>

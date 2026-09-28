@@ -1,8 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
+<<<<<<< HEAD
 // 🔥 IMPORTANTE: Agregamos getDocsFromServer aquí
 import { addDoc, collection, doc, getDoc, getDocsFromServer, query, where } from 'firebase/firestore';
+=======
+import { addDoc, collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
+>>>>>>> d234238edc258e62d77849c87cb78e4a3f8ac6e2
 import React, { useState } from 'react';
 import {
   ActivityIndicator, Alert, StyleSheet, Text,
@@ -33,10 +37,14 @@ export default function LoginScreen() {
         where('nombre_completo', '==', user.trim()),
         where('contrasena', '==', pass.trim())
       );
+<<<<<<< HEAD
       
       // 🔥 LA MAGIA: Obligamos a consultar al servidor, evadiendo el caché de los datos móviles
       const res = await getDocsFromServer(q);
       
+=======
+      const res = await getDocs(q);
+>>>>>>> d234238edc258e62d77849c87cb78e4a3f8ac6e2
       if (!res.empty) {
         const datos = res.docs[0].data();
         router.replace({ pathname: '/lista', params: { uLog: datos.nombre_completo, rol: datos.rol } });
@@ -44,7 +52,11 @@ export default function LoginScreen() {
         Alert.alert('Error', 'Credenciales incorrectas');
       }
     } catch (e) {
+<<<<<<< HEAD
       Alert.alert('Error', 'Falla de red o conexión inestable');
+=======
+      Alert.alert('Error', 'Falla de red');
+>>>>>>> d234238edc258e62d77849c87cb78e4a3f8ac6e2
     } finally {
       setLoading(false);
     }
@@ -58,12 +70,17 @@ export default function LoginScreen() {
       if (!seguridadRef.exists()) return Alert.alert('Error', 'No se encontró la configuración de seguridad.');
       const codigoSecreto = seguridadRef.data().codigo_congregacion;
       if (regCode.trim().toLowerCase() !== codigoSecreto.toLowerCase()) return Alert.alert('Error', 'Código de congregación incorrecto.');
+<<<<<<< HEAD
       
       const q = query(collection(db, 'usuarios'), where('nombre_completo', '==', regUser.trim()));
       
       // 🔥 También aplicamos getDocsFromServer aquí por seguridad
       const res = await getDocsFromServer(q);
       
+=======
+      const q = query(collection(db, 'usuarios'), where('nombre_completo', '==', regUser.trim()));
+      const res = await getDocs(q);
+>>>>>>> d234238edc258e62d77849c87cb78e4a3f8ac6e2
       if (!res.empty) {
         Alert.alert('Error', 'Este nombre ya está registrado.');
       } else {
@@ -118,8 +135,11 @@ export default function LoginScreen() {
               value={pass}
               onChangeText={setPass}
               secureTextEntry={!mostrarPass}
+<<<<<<< HEAD
               autoCapitalize="none" // 🔥 Evita mayúsculas al inicio
               autoCorrect={false}   // 🔥 Evita espacios del autocorrector
+=======
+>>>>>>> d234238edc258e62d77849c87cb78e4a3f8ac6e2
             />
             <TouchableOpacity onPress={() => setMostrarPass(!mostrarPass)} style={styles.eyeBtn}>
               <Ionicons name={mostrarPass ? 'eye-off-outline' : 'eye-outline'} size={20} color="#aaa" />
@@ -180,7 +200,11 @@ export default function LoginScreen() {
 
         <View style={[styles.inputWrap, { borderColor: '#FFC107', borderWidth: 1.5 }]}>
           <Ionicons name="key-outline" size={18} color="#FFC107" style={styles.inputIcon} />
+<<<<<<< HEAD
           <TextInput style={styles.input} placeholder="Código de Congregación" placeholderTextColor="#bbb" value={regCode} onChangeText={setRegCode} autoCapitalize="none" autoCorrect={false} />
+=======
+          <TextInput style={styles.input} placeholder="Código de Congregación" placeholderTextColor="#bbb" value={regCode} onChangeText={setRegCode} autoCapitalize="none" />
+>>>>>>> d234238edc258e62d77849c87cb78e4a3f8ac6e2
         </View>
 
         <TouchableOpacity style={styles.btnLogin} onPress={registrarUsuarioNuevo} activeOpacity={0.85}>
@@ -199,19 +223,49 @@ export default function LoginScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
+<<<<<<< HEAD
   circle1: { position: 'absolute', top: -80, right: -80, width: 260, height: 260, borderRadius: 130, backgroundColor: 'rgba(255,255,255,0.06)' },
   circle2: { position: 'absolute', bottom: -60, left: -60, width: 200, height: 200, borderRadius: 100, backgroundColor: 'rgba(255,255,255,0.04)' },
   card: { width: '100%', backgroundColor: 'white', borderRadius: 24, padding: 28, shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.25, shadowRadius: 20, elevation: 12 },
   iconWrap: { width: 68, height: 68, borderRadius: 34, backgroundColor: '#EDE7F6', justifyContent: 'center', alignItems: 'center', alignSelf: 'center', marginBottom: 16 },
   title: { fontSize: 26, fontWeight: 'bold', color: '#4A148C', textAlign: 'center' },
   subtitle: { fontSize: 13, color: '#999', textAlign: 'center', marginBottom: 24, marginTop: 4 },
+=======
+
+  // Decoración de fondo
+  circle1: { position: 'absolute', top: -80, right: -80, width: 260, height: 260, borderRadius: 130, backgroundColor: 'rgba(255,255,255,0.06)' },
+  circle2: { position: 'absolute', bottom: -60, left: -60, width: 200, height: 200, borderRadius: 100, backgroundColor: 'rgba(255,255,255,0.04)' },
+
+  // Card principal
+  card: { width: '100%', backgroundColor: 'white', borderRadius: 24, padding: 28, shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.25, shadowRadius: 20, elevation: 12 },
+
+  // Ícono circular
+  iconWrap: { width: 68, height: 68, borderRadius: 34, backgroundColor: '#EDE7F6', justifyContent: 'center', alignItems: 'center', alignSelf: 'center', marginBottom: 16 },
+
+  title: { fontSize: 26, fontWeight: 'bold', color: '#4A148C', textAlign: 'center' },
+  subtitle: { fontSize: 13, color: '#999', textAlign: 'center', marginBottom: 24, marginTop: 4 },
+
+  // Inputs
+>>>>>>> d234238edc258e62d77849c87cb78e4a3f8ac6e2
   inputWrap: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F5F5F5', borderRadius: 12, marginBottom: 14, paddingHorizontal: 14, borderWidth: 1, borderColor: '#eee' },
   inputIcon: { marginRight: 8 },
   input: { flex: 1, paddingVertical: 14, fontSize: 15, color: '#333' },
   eyeBtn: { padding: 6 },
+<<<<<<< HEAD
   btnLogin: { backgroundColor: '#FFC107', paddingVertical: 15, borderRadius: 12, alignItems: 'center', marginTop: 6 },
   btnText: { color: '#4A148C', fontWeight: 'bold', fontSize: 16, letterSpacing: 1 },
   linkWrap: { marginTop: 18, alignItems: 'center' },
   linkText: { color: '#999', fontSize: 14 },
+=======
+
+  // Botón principal
+  btnLogin: { backgroundColor: '#FFC107', paddingVertical: 15, borderRadius: 12, alignItems: 'center', marginTop: 6 },
+  btnText: { color: '#4A148C', fontWeight: 'bold', fontSize: 16, letterSpacing: 1 },
+
+  // Link registro
+  linkWrap: { marginTop: 18, alignItems: 'center' },
+  linkText: { color: '#999', fontSize: 14 },
+
+>>>>>>> d234238edc258e62d77849c87cb78e4a3f8ac6e2
   version: { color: 'rgba(255,255,255,0.3)', marginTop: 24, fontSize: 12 },
 });

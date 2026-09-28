@@ -49,11 +49,6 @@ export default function MapaScreen() {
   const webViewRef = useRef<WebView>(null);
   const cantidadCapitanesAnterior = useRef(0);
 
-  // Coordenadas del centro de la ciudad
-  // Si la congregación cambia de zona, solo hay que tocar estos dos valores
-  const LAT_CENTRO = 27.4580;
-  const LNG_CENTRO = -109.9530;
-
   // --- CONTROL DEL BOTÓN FÍSICO "ATRÁS" DE ANDROID ---
   useEffect(() => {
     const backAction = () => {
@@ -149,7 +144,7 @@ export default function MapaScreen() {
             webViewRef.current?.injectJavaScript(`if(typeof actualizarUbicacion === 'function') { actualizarUbicacion(${lat}, ${lng}); } true;`);
 
             let idEncontrado = "externo";
-            for (const mza of manzanas) {
+            for (const mza of manzanasRef.current) {
                 if (mza.coordenadas && mza.coordenadas.length > 0) {
                     const latM = mza.coordenadas[0].latitude; const lngM = mza.coordenadas[0].longitude;
                     const dist = Math.abs(latM - lat) + Math.abs(lngM - lng);
@@ -167,7 +162,7 @@ export default function MapaScreen() {
         }
       })();
     } else { setPinesPrivados([]); setTerritorioDetectadoGps(null); }
-    return () => { isMounted = false; if (watcher) watcher.remove(); };
+    return () => { if (watcher) watcher.remove(); };
   }, [radarActivo, manzanas]);
 
 // --- NOTAS PRIVADAS EN MAPA (CAPITANES VEN TODO EN EL TERRITORIO) ---
@@ -234,42 +229,6 @@ export default function MapaScreen() {
     } catch (e) { Alert.alert("Error", "No se pudo borrar la nota."); }
   };
 
-  // --- ALERTAS DE PELIGRO ---
-  const cargarAlertas = async () => {
-    try {
-      if (!territorioSeleccionado || territorioSeleccionado === 'radar') { setAlertasGlobales([]); return; }
-      const q = query(collection(db, 'alertas_mapa'), where('territorio_id', '==', territorioSeleccionado));
-      const snap = await getDocs(q);
-      const lista: any[] = [];
-      snap.forEach(doc => lista.push({ id: doc.id, ...doc.data() }));
-      setAlertasGlobales(lista);
-    } catch (e) { console.log('Error cargando alertas'); }
-  };
-
-  useEffect(() => { cargarAlertas(); }, [territorioSeleccionado]);
-
-  const guardarAlerta = async () => {
-    if (!nuevaAlertaCoords || !textoNuevaAlerta.trim()) return Alert.alert('Error', 'Describe el peligro antes de guardar.');
-    try {
-      await addDoc(collection(db, 'alertas_mapa'), {
-        lat: nuevaAlertaCoords.lat, lng: nuevaAlertaCoords.lng,
-        texto: textoNuevaAlerta.trim(), creador: String(uLogActual),
-        territorio_id: String(territorioSeleccionado), timestamp: Date.now()
-      });
-      setModalAlertaVisible(false); setTextoNuevaAlerta('');
-      Alert.alert('⚠️ Alerta registrada', 'Todos los publicadores de este territorio pueden verla.');
-      cargarAlertas();
-    } catch (e) { Alert.alert('Error', 'No se pudo guardar la alerta.'); }
-  };
-
-  const borrarAlerta = async (id: string) => {
-    try {
-      await deleteDoc(doc(db, 'alertas_mapa', id));
-      Alert.alert('✅ Eliminada', 'La alerta ha sido removida del mapa.');
-      cargarAlertas();
-    } catch (e) { Alert.alert('Error', 'No se pudo borrar la alerta.'); }
-  };
-
   // --- BITÁCORA DE MANZANAS ---
   const obtenerArregloNotas = (manzana: any) => {
     if (manzana.arr_notas && Array.isArray(manzana.arr_notas)) return manzana.arr_notas;
@@ -320,14 +279,9 @@ export default function MapaScreen() {
   // --- CAPITANES Y MARCAR MANZANA (CON OPTIMIZACIÓN INCREMENT) ---
   const guardarPinFirebase = async (lat: number, lng: number) => {
       try {
-          const nuevoPin = { nombre: String(uLogActual), lat, lng, timestamp: Date.now() };
-          await setDoc(doc(db, "capitanes_activos", String(uLogActual)), nuevoPin);
-          // ✅ Actualización local inmediata — el pin aparece al instante en el mapa
-          setCapitanes(prev => {
-              const sinMi = prev.filter((c: any) => c.nombre !== String(uLogActual));
-              return [...sinMi, nuevoPin];
-          });
-          setEsperandoToqueMapa(false);
+          await setDoc(doc(db, "capitanes_activos", String(uLog)), { nombre: uLog, lat: lat, lng: lng, timestamp: Date.now() });
+          Alert.alert("✅ ¡Listo!", "El punto de encuentro está activo.");
+          setEsperandoToqueMapa(false); cargarDatos(); 
           webViewRef.current?.injectJavaScript(`map.flyTo([${lat}, ${lng}], 16); true;`);
           Alert.alert("✅ ¡Listo!", "El punto de encuentro está activo.");
       } catch (e) { Alert.alert("Error", "No se pudo guardar el punto."); }
@@ -335,9 +289,7 @@ export default function MapaScreen() {
 
   const apagarRadar = async () => {
       try {
-          await deleteDoc(doc(db, "capitanes_activos", String(uLogActual)));
-          // ✅ Actualización local inmediata — el menú queda consistente de inmediato
-          setCapitanes(prev => prev.filter((c: any) => c.nombre !== String(uLogActual)));
+          await deleteDoc(doc(db, "capitanes_activos", String(uLog)));
           Alert.alert("🛑 Radar apagado", "Tu carrito ha sido retirado del mapa.");
       } catch (e) { Alert.alert("Error", "No se pudo apagar el radar."); }
   };
@@ -387,12 +339,12 @@ export default function MapaScreen() {
       if (estadoAnterior !== 'Trabajado' && nuevoEstado === 'Trabajado') cambioProgreso = 1; 
       else if (estadoAnterior === 'Trabajado' && nuevoEstado !== 'Trabajado') cambioProgreso = -1;
 
-      // 1. Actualiza manzana
-      await updateDoc(doc(db, "manzanas", id), updateData); 
+      // 1. Actualiza manzana (Aseguramos ID como string)
+      await updateDoc(doc(db, "manzanas", String(id)), updateData); 
 
-      // 2. Actualiza territorio (Sin gastar lecturas)
-      if (cambioProgreso !== 0) {
-          await updateDoc(doc(db, "territorios", manzanaEnFoco.territorio), { trabajadas: increment(cambioProgreso) });
+      // 2. Actualiza territorio (Sin gastar lecturas, aseguramos ID como string)
+      if (cambioProgreso !== 0 && manzanaEnFoco.territorio) {
+          await updateDoc(doc(db, "territorios", String(manzanaEnFoco.territorio)), { trabajadas: increment(cambioProgreso) });
       }
 
       setModalVisible(false);
@@ -515,14 +467,8 @@ export default function MapaScreen() {
       }
 
       if (data.tipo === 'nota_click') {
-          const puedeBorrar = uLogActual === data.creador || esCapitanOAdmin;
-          Alert.alert(`📌 Revisita de ${data.creador}`, data.texto, puedeBorrar ? [{ text: 'Cerrar', style: 'cancel' }, { text: '🗑️ Borrar', style: 'destructive', onPress: () => borrarNotaPrivada(data.id) }] : [{ text: 'Cerrar', style: 'cancel' }]);
-          return;
-      }
-
-      if (data.tipo === 'alerta_click') {
-          const puedeBorrar = uLogActual === data.creador || esCapitanOAdmin;
-          Alert.alert('⚠️ Alerta de Peligro', `${data.texto}\n\n─ Reportado por: ${data.creador}`, puedeBorrar ? [{ text: 'Cerrar', style: 'cancel' }, { text: '🗑️ Eliminar Alerta', style: 'destructive', onPress: () => borrarAlerta(data.id) }] : [{ text: 'Cerrar', style: 'cancel' }]);
+          const puedeBorrar = (uLog === data.creador || esCapitanOAdmin);
+          Alert.alert(`📌 Nota de ${data.creador}`, data.texto, puedeBorrar ? [{ text: "Cerrar", style: "cancel" }, { text: "🗑️ Borrar Nota", style: "destructive", onPress: () => borrarNotaPrivada(data.id) }] : [{ text: "Cerrar", style: "cancel" }]);
           return;
       }
 
@@ -614,105 +560,30 @@ export default function MapaScreen() {
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'padding'} style={{ width: '100%', maxHeight: '92%' }}>
             <View style={[styles.modalContent, { flexShrink: 1 }]}>
               {manzanaEnFoco && (
-                <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-
-                  {/* Drag handle */}
-                  <View style={styles.modalHandle} />
-
-                  {/* CABECERA: Territorio + Manzana + Badge de estado */}
-                  <View style={styles.modalHeader}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.modalSuperTitle}>Territorio {manzanaEnFoco.territorio} — {manzanaEnFoco.dia || 'General'}</Text>
-                      <Text style={styles.modalMainTitle}>Manzana {manzanaEnFoco.numero}</Text>
-                    </View>
-                    <View style={[
-                      styles.estadoBadge,
-                      manzanaEnFoco.estado === 'Trabajado' ? { backgroundColor: '#E8F5E9', borderColor: '#4CAF50' }
-                      : manzanaEnFoco.estado === 'Repasando' ? { backgroundColor: '#E3F2FD', borderColor: '#2196F3' }
-                      : { backgroundColor: '#FFF3E0', borderColor: '#FF9800' }
-                    ]}>
-                      <Text style={[
-                        styles.estadoBadgeTxt,
-                        manzanaEnFoco.estado === 'Trabajado' ? { color: '#2E7D32' }
-                        : manzanaEnFoco.estado === 'Repasando' ? { color: '#1565C0' }
-                        : { color: '#E65100' }
-                      ]}>
-                        {manzanaEnFoco.estado === 'Trabajado' ? '✅' : manzanaEnFoco.estado === 'Repasando' ? '🔄' : '⏳'} {manzanaEnFoco.estado}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {manzanaEnFoco.fecha_trabajado && (
-                    <Text style={styles.fechaTrabajado}>
-                      <Ionicons name="calendar-outline" size={12} color="#aaa" /> Última vez: {manzanaEnFoco.fecha_trabajado}
-                    </Text>
-                  )}
-
-                  {/* SELECTOR DE ESTADO (Segmented control) */}
-                  <View style={styles.selectorEstado}>
-                    {([
-                      { label: 'Pendiente', color: '#FF9800', bg: '#FFF3E0', icon: 'time-outline' },
-                      { label: 'Repasando', color: '#2196F3', bg: '#E3F2FD', icon: 'refresh-outline' },
-                      { label: 'Trabajado', color: '#4CAF50', bg: '#E8F5E9', icon: 'checkmark-circle-outline' },
-                    ] as const).map((opcion) => {
-                      const seleccionado = manzanaEnFoco.estado === opcion.label;
-                      return (
-                        <TouchableOpacity
-                          key={opcion.label}
-                          style={[styles.pillEstado, seleccionado
-                            ? { backgroundColor: opcion.color, borderColor: opcion.color }
-                            : { backgroundColor: 'white', borderColor: '#E0E0E0' }
-                          ]}
-                          onPress={() => marcarManzana(manzanaEnFoco.id, opcion.label)}
-                          activeOpacity={0.8}
-                        >
-                          <Ionicons name={opcion.icon} size={15} color={seleccionado ? 'white' : opcion.color} />
-                          <Text style={[styles.pillTxt, { color: seleccionado ? 'white' : '#555' }]}>
-                            {opcion.label}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-
-                  {/* DIVIDER */}
-                  <View style={styles.divider} />
-
-                  {/* BITÁCORA */}
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-                    <Ionicons name="book-outline" size={15} color="#4A148C" />
-                    <Text style={styles.sectionTitle}>Bitácora</Text>
-                  </View>
-
-                  <View style={{ maxHeight: 180, marginBottom: 12 }}>
-                    <ScrollView nestedScrollEnabled showsVerticalScrollIndicator={false}>
-                      {notasActuales.length === 0 && (
-                        <View style={styles.emptyNota}>
-                          <Ionicons name="document-text-outline" size={22} color="#ddd" />
-                          <Text style={styles.emptyNotaTxt}>Sin notas en la bitácora</Text>
-                        </View>
-                      )}
-                      {notasActuales.map((n: any) => (
-                        <View key={n.id} style={styles.notaCard}>
-                          <Text style={styles.notaTxt}>{n.texto}</Text>
-                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
-                            <Text style={styles.notaMeta}>
-                              <Ionicons name="person-outline" size={11} color="#aaa" /> {n.autor} · {n.fecha}
-                            </Text>
-                            {(esCapitanOAdmin || uLogActual === n.autor) && (
-                              <View style={{ flexDirection: 'row', gap: 14 }}>
-                                <TouchableOpacity onPress={() => editarNotaHistorial(n)}>
-                                  <Ionicons name="pencil-outline" size={17} color="#2196F3" />
-                                </TouchableOpacity>
-                                <TouchableOpacity onPress={() => borrarNotaHistorial(n.id)}>
-                                  <Ionicons name="trash-outline" size={17} color="#F44336" />
-                                </TouchableOpacity>
+                <ScrollView keyboardShouldPersistTaps="handled">
+                  <Text style={styles.tT}>Manzana {manzanaEnFoco.numero}</Text>
+                  <Text style={{ marginBottom: 15, color: '#666' }}>Estado actual: <Text style={{fontWeight:'bold', color: manzanaEnFoco.estado === 'Trabajado' ? 'green' : manzanaEnFoco.estado === 'Repasando' ? '#2196F3' : 'orange'}}>{manzanaEnFoco.estado}</Text></Text>
+                  
+                  {/* AQUÍ ESTÁ LA SECCIÓN DE NOTAS DE VUELTA */}
+                  <Text style={{ fontWeight: 'bold', color: '#333', marginBottom: 5 }}>Bitácora de la Manzana:</Text>
+                  <View style={{maxHeight: 180, marginBottom: 15}}>
+                      <ScrollView nestedScrollEnabled>
+                          {notasActuales.length === 0 && <Text style={{color: '#999', fontStyle: 'italic', fontSize: 13, marginVertical: 10}}>No hay notas registradas aún.</Text>}
+                          {notasActuales.map((n: any) => (
+                              <View key={n.id} style={{backgroundColor: '#f9f9f9', padding: 10, borderRadius: 8, marginBottom: 8, borderLeftWidth: 4, borderLeftColor: '#FFC107'}}>
+                                  <Text style={{fontSize: 14, color: '#333'}}>{n.texto}</Text>
+                                  <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8}}>
+                                      <Text style={{fontSize: 11, color: '#888'}}>👤 {n.autor} • {n.fecha}</Text>
+                                      {(esCapitanOAdmin || uLog === n.autor) && (
+                                          <View style={{flexDirection: 'row', gap: 15}}>
+                                              <TouchableOpacity onPress={() => editarNotaHistorial(n)}><Text style={{fontSize: 16}}>✏️</Text></TouchableOpacity>
+                                              <TouchableOpacity onPress={() => borrarNotaHistorial(n.id)}><Text style={{fontSize: 16}}>🗑️</Text></TouchableOpacity>
+                                          </View>
+                                      )}
+                                  </View>
                               </View>
-                            )}
-                          </View>
-                        </View>
-                      ))}
-                    </ScrollView>
+                          ))}
+                      </ScrollView>
                   </View>
 
                   {/* INPUT NUEVA NOTA */}
